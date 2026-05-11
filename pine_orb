@@ -1,0 +1,405 @@
+//@version=5    
+// Candle Type Pine Script  
+ 
+// 1. Define strategy settings
+strategy(title="ORB Breakout", overlay=true,
+     pyramiding=0, initial_capital=100000,
+     commission_type=strategy.commission.cash_per_order,
+     commission_value=0, slippage=0)
+ 
+//All Variables 
+var boxLow_ = float(na)
+var boxHigh_ = float(na) 
+var Strat_2D_2U_found = false
+var Strat_2U_2D_found = false 
+var topLeft_ = chart.point.now(high)
+var bottomRight_ = chart.point.from_index(bar_index + 1, low)  
+var strategy_vanilla_1st_ORB = true 
+
+//BOX Theory Variables
+var bool boxLine_Resistance_canDraw = false 
+var line boxLine_Resistance = na
+ 
+
+
+// ************ ORB Strategy Start ***************** // 
+
+// BUGS 
+// - Does not work if 2nd candle is mommy candle 
+
+
+//@version=4
+//ORB New 
+
+//NOTES
+//1) SPY on 15m give best performence so thats why the defaults are set according to it 
+//2) BEST R:R is 3 
+//3) WORKS great on growth Stocks (FB, AMZN, TSLA,AAPL, AI, DKNG, PLTR, NIO) etc. but not on boomer stocks (e.g. XOM, UAL) 
+//4) WORKS better on stocks than ETF (SPY)
+//5) TRAILING STOP WORKS BEST : After 1:1, set it : Further investigation required 
+
+//ISSUES with Script  
+// 1- If there is 1-3 Pattern (Strat) at 9:45 then it can show loss on both trades because both bearish and bullish just ran at same time . ( exmple SPY 15 minute 03 Nov 2021 )
+
+//THINGS TO TEST IN STRATEGY
+// IF ORB Fails , is it Strong signal to reverse side ? 
+// ARE GAPPERS best for ORB ? 
+// ARE DAILY INSIDE BAR STOCKS good for ORB ?
+
+//Take Profit 1:1 
+riskReward = input.float(1, "Risk Reward e.g. 1 for 1:1, 2 for 1:2, 3 for 1:3 etc.")
+
+From_Year  = input(defval = 2026, title = "From Year")
+From_Month = input(defval = 1, title = "From Month")
+From_Day   = input(defval = 1, title = "From Day" )
+To_Year    = input(defval = 2026, title = "To Year") 
+To_Month   = input(defval = 5, title = "To Month")
+To_Day     = input(defval = 31, title = "To Day" )
+// Get user input
+rsiSource = input(title="RSI Source",   defval=close)
+rsiLength = input(title="RSI Length",  defval=14)
+rsiOverbought = input(title="RSI Overbought Level",  defval=80)
+rsiOversold = input(title="RSI Oversold Level",   defval=20)
+
+Start  = timestamp(From_Year, From_Month, From_Day, 00, 00)  // backtest start window
+Finish = timestamp(To_Year, To_Month, To_Day, 23, 59)        // backtest finish window
+Window = time >= Start and time <= Finish
+
+//CONFIG FOR BACKTESTING
+var sameCandle_SL = false 
+
+
+inputMax = input(5, title= "ORB total time (minutes)")
+
+inputLastCandleHour = input(10, title= "Last Time To Open Trade(Hr)")
+inputLastCandleMin  = input(30)
+
+sess = input("0915-1030",  title="Session Time")
+t = time(timeframe.period, sess ) // + ":1234567"
+
+//Stop loss percentage : 90% of the high/low of previous candle 
+SL_RANGE_PERCENTAGE = 0
+ORB_CENT_IGNORE = 0.01 // Ignore 1 cents in price when ORB break 
+ 
+Long_Stop_Buy_Level = float (na) 
+risk_per_trade = float(na)
+risk_per_trade_Chart = float(na)
+long_qty = float (na) 
+short_qty = float (na) 
+Long_Stop_Loss_Level = float (na) 
+Long_Take_Prof_Level = float (na)  
+
+Short_Stop_Buy_Level = float (na)  
+Short_Stop_Loss_Level = float (na)  
+Short_Take_Prof_Level = float (na)    
+            
+var bool SecondBarIsOutsideBar = false  
+useles_var  = true
+is_newbar(res) => ta.change(time(res)) != 0
+in_session = not na(t)
+is_first  = in_session and not in_session[1]
+is_second = in_session [1] and not in_session[2]  
+is_third  = in_session [2] and not in_session[3]  
+
+//pickup qty by the risk amount 
+risk_per_trade := 200 
+risk_per_trade_Chart := 200 
+
+Inside_Bar = high[1] >= high and low[1] <= low 
+Outside_Bar = high[1] < high and low[1] > low 
+MommyBar = high > high [1] and low < low [1]
+Bullish = open[1] < close[1]
+Bearish = open[1] > close[1]
+
+//Pickup qty by default 
+//long_qty := math.floor((strategy.equity ) / close)
+//short_qty := math.floor((strategy.equity ) / close)
+
+txtComment = ''
+
+
+offsett_ = 0
+
+//TP for long 
+tp_ = float(na) 
+if(riskReward>0)
+    tp_ := high[offsett_]+((high[offsett_]-low[offsett_])*riskReward) 
+else
+    tp_ := high[offsett_]+(high[offsett_]-low[offsett_])// trailing stop mytodo but right now tp_ =   1:1
+
+//TP for short 
+tpShort_ = float(na)
+if(riskReward>0)
+    tpShort_ := low[offsett_]-((high[offsett_]-low[offsett_])*riskReward)
+else
+    tpShort_ := low[offsett_]-(high[offsett_]-low[offsett_])// trailing stop mytodo but right now tp_ = 1:1
+    
+
+StringTrade_ = ""
+
+//Force Close all trade at 3 PM
+if(hour>=15)
+    strategy.close_all() 
+ 
+if(strategy_vanilla_1st_ORB)
+    if (strategy.position_entry_name == "Bullish ORB")
+        strategy.cancel("Bearish ORB")   
+        strategy.cancel("Bearish (IB) ORB")  
+        strategy.cancel("Bullish (IB) ORB")     
+    if (strategy.position_entry_name == "Bearish ORB")
+        strategy.cancel("Bullish ORB")    
+        strategy.cancel("Bearish (IB) ORB")  
+        strategy.cancel("Bullish (IB) ORB")  
+    if (strategy.position_entry_name == "Bullish (IB) ORB")
+        strategy.cancel("Bearish (IB) ORB")  
+        strategy.cancel("Bullish ORB")     
+        strategy.cancel("Bearish ORB")      
+    if (strategy.position_entry_name == "Bearish (IB) ORB")
+        strategy.cancel("Bullish (IB) ORB")  
+        strategy.cancel("Bullish ORB")  
+        strategy.cancel("Bearish ORB")   
+
+if(Window and (is_first or is_second or is_third ) and not SecondBarIsOutsideBar)
+    if(Inside_Bar)  
+        if(is_second)
+            //First cancel the existing Orders 
+            strategy.cancel("Bullish ORB")    
+            strategy.cancel("Bearish ORB")    
+
+            // Get Key Levels : Long Side 
+            Long_Stop_Buy_Level   := high + ORB_CENT_IGNORE
+
+            if(sameCandle_SL)
+                Long_Stop_Loss_Level := low 
+            else 
+                Long_Stop_Loss_Level  := low [1] + (high - low) * SL_RANGE_PERCENTAGE
+
+            //check TP 
+            tp_ := Long_Stop_Buy_Level+(Long_Stop_Buy_Level - Long_Stop_Loss_Level)*riskReward
+
+            Long_Take_Prof_Level  := tp_ 
+            StringTrade_ := "(IB) ORB"
+            
+            Short_Stop_Buy_Level := low - ORB_CENT_IGNORE
+
+            if(sameCandle_SL)
+                Short_Stop_Loss_Level := high 
+            else 
+                Short_Stop_Loss_Level := high[1]  - (high - low) * SL_RANGE_PERCENTAGE
+
+            tpShort_ := Short_Stop_Buy_Level-(Short_Stop_Loss_Level - Short_Stop_Buy_Level)*riskReward
+            Short_Take_Prof_Level := tpShort_    
+
+            long_qty := risk_per_trade/ ( Long_Stop_Buy_Level - Long_Stop_Loss_Level)
+            short_qty := risk_per_trade/ ( Short_Stop_Loss_Level - Short_Stop_Buy_Level)
+            
+
+        if(is_third)
+            // Get Key Levels : Long Side 
+            Long_Stop_Buy_Level   := high + ORB_CENT_IGNORE
+
+            if(sameCandle_SL) 
+                Long_Stop_Loss_Level := low [1]
+            else
+                Long_Stop_Loss_Level  := low [2] + (high - low) * SL_RANGE_PERCENTAGE
+
+            //check TP : test 
+            tp_ := Long_Stop_Buy_Level+(Long_Stop_Buy_Level - Long_Stop_Loss_Level)*riskReward
+
+            Long_Take_Prof_Level  := tp_ 
+            StringTrade_ := "(IB) ORB"
+            
+            Short_Stop_Buy_Level := low - ORB_CENT_IGNORE
+
+            if(sameCandle_SL)
+                Short_Stop_Loss_Level := high[1]
+            else 
+                Short_Stop_Loss_Level := high[2]  - (high - low) * SL_RANGE_PERCENTAGE
+
+            tpShort_ := Short_Stop_Buy_Level-(Short_Stop_Loss_Level - Short_Stop_Buy_Level)*riskReward
+            Short_Take_Prof_Level := tpShort_    
+            
+
+            long_qty := risk_per_trade/ ( Long_Stop_Buy_Level - Long_Stop_Loss_Level)
+            short_qty := risk_per_trade/ ( Short_Stop_Loss_Level - Short_Stop_Buy_Level)            
+            //is_second = false 
+    else
+        if(Outside_Bar)
+            if(is_second)
+                SecondBarIsOutsideBar := true  //mark it    
+                //strategy.close_all()   
+        // Get Key Levels : Long Side
+        if(is_first)
+            Long_Stop_Buy_Level   := high + ORB_CENT_IGNORE
+            //label.new(bar_index, close, tostring(high[1]))
+
+            if(sameCandle_SL)
+                Long_Stop_Loss_Level  := low //+ (high - low) * SL_RANGE_PERCENTAGE
+            else 
+                Long_Stop_Loss_Level  := low + (high - low) * SL_RANGE_PERCENTAGE
+
+            //check TP 
+            tp_ := Long_Stop_Buy_Level+(Long_Stop_Buy_Level - Long_Stop_Loss_Level)*riskReward
+
+            Long_Take_Prof_Level  := tp_ 
+            StringTrade_ := "ORB" 
+            
+            Short_Stop_Buy_Level := low - ORB_CENT_IGNORE
+
+            if(sameCandle_SL)
+                Short_Stop_Loss_Level := high
+            else
+                Short_Stop_Loss_Level := high - (high - low) * SL_RANGE_PERCENTAGE
+
+            tpShort_ := Short_Stop_Buy_Level-(Short_Stop_Loss_Level - Short_Stop_Buy_Level)*riskReward
+            Short_Take_Prof_Level := tpShort_
+
+            long_qty := risk_per_trade/ ( Long_Stop_Buy_Level - Long_Stop_Loss_Level)
+            short_qty := risk_per_trade/ ( Short_Stop_Loss_Level - Short_Stop_Buy_Level)
+
+            //is_first = false 
+
+    //label.new(bar_index, high, color=#ffffff, text=str.tostring(math.round(long_qty,0)  ))
+    if (Long_Stop_Buy_Level>0 and strategy.opentrades == 0 and not SecondBarIsOutsideBar and long_qty > 0)  
+        txtComment := "BUY : "+ str.tostring(Long_Stop_Buy_Level) + " SL : "+ str.tostring(Long_Stop_Loss_Level) + " TP : "+ str.tostring(Long_Take_Prof_Level)
+        
+        //Bullish Trade 
+        strategy.entry("Bullish "+ StringTrade_, strategy.long,  qty= math.round(long_qty,0), stop=Long_Stop_Buy_Level , comment="Bullish ["+StringTrade_+"], "+txtComment) // , when=hour(time) >=9 and hour(time) <=9  
+
+        if(riskReward>0)
+            //R:R Specified
+            useles_var := false      
+            strategy.exit( "Bull-EXIT", "Bullish "+ StringTrade_, stop=Long_Stop_Loss_Level, limit=Long_Take_Prof_Level)
+        else 
+            //Trailing Stop
+            useles_var := false 
+            //strategy.exit( "Bull-EXIT", "Bullish "+ StringTrade_, stop=Long_Stop_Loss_Level, trail_price=Long_Stop_Buy_Level, trail_offset = 10 )
+            //strategy.exit( "Bull-EXIT", "Bullish "+ StringTrade_, stop=Long_Stop_Loss_Level, trail_price=Long_Stop_Buy_Level+(Long_Stop_Buy_Level-Long_Stop_Loss_Level), trail_offset = (Long_Stop_Buy_Level-Long_Stop_Loss_Level) )
+        
+        
+    if (Short_Stop_Buy_Level>0 and strategy.opentrades == 0 and not SecondBarIsOutsideBar and short_qty > 0)    
+        txtComment := "SELL: "+ str.tostring(Short_Stop_Buy_Level) + " SL : "+ str.tostring(Short_Stop_Loss_Level) + " TP : "+ str.tostring(Short_Take_Prof_Level)
+        
+        //Bearish Trade 
+        strategy.entry("Bearish "+ StringTrade_, strategy.short,  stop=Short_Stop_Buy_Level ,  qty= math.round(short_qty,0) , comment="Bearish ["+StringTrade_+"], "+txtComment)   
+
+        if(riskReward>0)
+            //R:R Specified     
+            strategy.exit( "Bear-EXIT",  "Bearish "+ StringTrade_, stop=Short_Stop_Loss_Level, limit=Short_Take_Prof_Level)     
+        else 
+            //Trailing Stop
+            useles_var := false 
+            //strategy.exit( "Bear-EXIT",  "Bearish "+ StringTrade_, stop=Short_Stop_Loss_Level, trail_price=Short_Stop_Buy_Level, trail_offset = (Short_Stop_Buy_Level-Short_Stop_Loss_Level) )    
+            //strategy.exit( "Bear-EXIT",  "Bearish "+ StringTrade_, stop=Short_Stop_Loss_Level, trail_price=Short_Stop_Buy_Level-(Short_Stop_Loss_Level-Short_Stop_Buy_Level), trail_offset = (Short_Stop_Loss_Level-Short_Stop_Buy_Level) )     
+        
+
+//Close all orders for this special case bar 
+if(SecondBarIsOutsideBar)
+    SecondBarIsOutsideBar := false  
+    strategy.close("Bearish ORB" ,"Outside Candle so closing it") 
+    strategy.close("Bullish ORB" ,"Outside Candle so closing it") 
+    //strategy.close_all() 
+    //strategy.exit( "Bull-EXIT", "Bearish ORB", stop = 
+
+// ----------------------------- PLOTTING ------------------------------------//
+//plotshape(shouldWeTrade_Long, style=shape.arrowdown, location=location.abovebar, color=color.purple)
+
+
+//label.new(bar_index, low, color=#ffffff, text= str.tostring( risk_per_trade/ ( Long_Stop_Buy_Level - Long_Stop_Loss_Level) ))
+ 
+ 
+plotchar(  long_qty , "long_qty" , location = location.top)
+//label.new(bar_index, low, color=#ffffff, text=str.tostring(strategy.position_entry_name  ))
+ 
+
+//Qty and Amount table  
+var tbl = table.new(position.top_right, 2, 3)   
+if (true)
+
+    qty_bar0 = math.round( risk_per_trade_Chart/(high-low) )
+    qty_bar1 = math.round( risk_per_trade_Chart/(high[1]-low[1]) )
+    
+    amount_bar0 =  math.round ( qty_bar0 * high )   
+    amount_bar1 =  math.round ( qty_bar1 * high [1] )
+
+    table.cell(tbl, 0, 0, "Qty",  bgcolor = #aaaaaa )
+    table.cell(tbl, 1, 0, "Amount", bgcolor = #aaaaaa )
+     
+    table.cell(tbl, 0, 1, str.tostring(qty_bar0) ,  bgcolor = #aaaaaa )
+    table.cell(tbl, 1, 1, "$" + str.tostring(amount_bar0) ,  bgcolor = #aaaaaa)
+     
+    table.cell(tbl, 0, 2, str.tostring(qty_bar1) ,  bgcolor = #aaaaaa)
+    table.cell(tbl, 1, 2, "$" + str.tostring(amount_bar1 ) ,  bgcolor = #aaaaaa)
+ 
+// ************ STRAT START 
+
+
+// Plot Strat Candles ---------------------
+// check for candle type 1 (inside candle) and plot an identifier
+barResult1 = high < high[1] and low > low[1] 
+plotchar(barResult1, title="Bar Type 1 Label", char="1", location=location.belowbar, color=#FFFFFF)
+// check for candle type 2 (up or down candle) and plot an identifier
+barResult2_A = (high > high[1]) and not (high > high[1] and low < low[1])
+plotchar(barResult2_A, title="Bar Type 2U Label", char="2U", location=location.abovebar, color=#FFFF00)
+// check for candle type 2 (up or down candle) and plot an identifier
+barResult2_B = (low < low[1]) and not (high > high[1] and low < low[1])
+plotchar(barResult2_B, title="Bar Type 2D Label", char="2D", location=location.belowbar, color=#FFFF00)
+// check for candle type 3 (engulfing candle) and plot an identifier
+barResult3 = high > high[1] and low < low[1]
+plotchar(barResult3, title="Bar Type 3 Label", char="3", location=location.belowbar, color=#FFFFFF)
+
+current_bar_is_inside = high < high [1] and low > low [1] ? true : false 
+last_bar_is_outside = high[1] > high[2] and low[1] < low[2] ? true : false
+current_bar_is_outside = high > high[1] and low < low[1] ? true : false
+last_bar_is_inside = high[1] < high[2] and low[1] > low[2] ? true : false
+
+double_inside = current_bar_is_inside and last_bar_is_inside ? color.white : na
+bgcolor(double_inside, transp=80) 
+
+plotshape(current_bar_is_inside and last_bar_is_outside == 1, style = shape.labelup, text = "OI", location = location.bottom, color = color.white, textcolor = color.black ) 
+plotshape(current_bar_is_outside and last_bar_is_inside == 1, style = shape.labelup, text = "IO", location = location.bottom, color = color.white, textcolor = color.black ) 
+plotshape(current_bar_is_outside and last_bar_is_outside == 1, style = shape.labelup, text = "OO", location = location.bottom, color = color.white, textcolor = color.black ) 
+
+//5 EMA  
+plot(ta.ema(close, 5), color=color.white) 
+
+//RSI 
+
+
+
+// Get RSI value
+rsiValue =  ta.rsi(rsiSource, rsiLength)
+isRsiOB = rsiValue >= rsiOverbought
+isRsiOS = rsiValue <= rsiOversold
+
+plotshape( isRsiOB,  title= "Overbought", location=location.abovebar, color=color.red, transp=0, style=shape.triangledown, text="OB")
+plotshape(isRsiOS, title= "Oversold", location=location.belowbar, color=color.green, transp=0, style=shape.triangleup, text="OS")
+
+// ************ BOX Strategy Start ***************** // 
+
+
+
+// Check if 2U - 2D
+//if( low < low [1] and not (high > high[1] and low < low [1]) and not last_bar_is_inside  )
+if ( barResult2_B   )
+    firstPoint = chart.point.from_index ( bar_index ,  high [1] )
+    secondPoint = chart.point.from_index (bar_index + 10, float(na))
+    secondPoint.price := high [1] 
+    //line.new(firstPoint, secondPoint, color=color.red)
+
+
+
+//    firstPoint = chart.point.from_index ( bar_index ,  low [0] )
+//    secondPoint = chart.point.from_index (bar_index + 10, float(na))
+//    secondPoint.price := low [0] 
+//    line.new(firstPoint, secondPoint, color=color.red)
+    
+
+if (false)
+    if(false and not boxLine_Resistance_canDraw)
+        boxLine_Resistance_canDraw = true
+        boxLine_Resistance := line.new(bar_index, high [1], bar_index, high [1], color=color.red)    // Get new line id boxLine_Resistance_canDraw = true
+    else
+        line.set_x2(boxLine_Resistance, bar_index)   // Update x2 position of the line (move it to the right)
+    
+
