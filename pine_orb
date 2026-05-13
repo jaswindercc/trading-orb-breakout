@@ -2,13 +2,6 @@
 // ============================================================
 // WEEKLY ORB - Round Level Breakout (Daily Timeframe)
 // ============================================================
-// 1. First day of week: capture open, find nearest round levels
-// 2. If a daily candle breaks above resistance → Long at close
-//    If it breaks below support → Short at close
-// 3. SL = opposite round level. TP = entry + risk * R:R
-// 4. Friday: force close. Never hold past Friday.
-// 5. One trade per week max.
-// ============================================================
 
 strategy("Weekly ORB", overlay=true,
      pyramiding=0,
@@ -21,10 +14,16 @@ strategy("Weekly ORB", overlay=true,
 // ======================== INPUTS ======================== //
 
 grp1 = "Strategy"
-rr           = input.float(3.0,  "Risk : Reward",       minval=0.5, step=0.5, group=grp1)
-riskPerTrade = input.float(200,  "Risk $ Per Trade",     minval=1,             group=grp1)
-roundInt     = input.float(5.0,  "Round Level Interval", minval=0.5, step=0.5, group=grp1,
-                  tooltip="Spacing between round numbers.\n5 → 100,105,110\n10 → 100,110,120\n1 → low-priced stocks")
+rr           = input.float(3.0,   "Risk : Reward",        minval=0.5, step=0.5, group=grp1)
+riskPerTrade = input.float(100,   "Risk $ Per Trade",      minval=1,             group=grp1)
+roundInt     = input.float(10.0,  "Round Level Interval",  minval=0.5, step=0.5, group=grp1,
+                  tooltip="10 → 100,110,120 (best for SPY)\n5 → 100,105,110\n1 → low-priced stocks")
+emaLen       = input.int(20,      "EMA Length (0=off)",    minval=0,             group=grp1,
+                  tooltip="Trend filter. Only long above EMA, short below. 20 optimal for SPY. Set 0 to disable.")
+slType       = input.string("Candle", "Stop Loss Type", options=["Candle", "Round Level"], group=grp1,
+                  tooltip="Candle = entry bar low/high (tighter, optimal).\nRound Level = opposite round level (wider).")
+lastEntryDay = input.int(3,       "Last Entry Day (2=Tue..5=Thu)", minval=2, maxval=5, group=grp1,
+                  tooltip="Latest day of week to enter. 3=Mon-Tue (optimal). 2=Mon only, 4=Mon-Wed, 5=Mon-Thu")
 
 grp2 = "Backtest Dates"
 startDate = input.time(timestamp("2026-01-01"), "Start Date", group=grp2)
@@ -36,12 +35,18 @@ inWindow = time >= startDate and time <= endDate
 
 isNewWeek = ta.change(time("W")) != 0
 isFriday  = dayofweek == dayofweek.friday
+isThursday = dayofweek == dayofweek.thursday
+
+// =================== EMA =================== //
+
+emaVal = emaLen > 0 ? ta.ema(close, emaLen) : na
+useEma = emaLen > 0
 
 // =================== STATE VARIABLES =================== //
 
 var float weekOpen   = na
-var float res        = na    // resistance: round level above open
-var float sup        = na    // support: round level below open
+var float res        = na
+var float sup        = na
 var bool  weekTraded = false
 
 // =========== FIRST DAY OF WEEK: CAPTURE LEVELS =========== //
@@ -57,29 +62,33 @@ if isNewWeek
     weekTraded := false
 
 // =================== ENTRY LOGIC =================== //
-// Check each daily bar: did it break resistance or support?
-// Enter with MARKET order (fills at bar's close).
-// Calculate SL/TP from actual fill price.
+// Confirmed breakout: daily CLOSE must be beyond the round level.
+// This filters out wicks that touch but don't hold.
+// If both levels broke intraday, close decides direction.
 
-brokeLong  = not na(res) and high >= res
-brokeShort = not na(sup) and low  <= sup
-flat       = strategy.position_size == 0
-canEnter   = inWindow and not weekTraded and flat and not isFriday
+flat     = strategy.position_size == 0
+tooLate  = dayofweek > lastEntryDay
+canEnter = inWindow and not weekTraded and flat and not isFriday and not tooLate
 
-if canEnter and brokeLong and not brokeShort
-    longRisk = close - sup
-    longTP   = close + longRisk * rr
-    longQty  = longRisk > 0 ? math.max(1, math.round(riskPerTrade / longRisk)) : 1
-    strategy.entry("Long", strategy.long, qty=longQty)
-    strategy.exit("XL", "Long", stop=sup, limit=longTP)
+longOK  = not na(res) and close > res and (not useEma or close > emaVal)
+shortOK = not na(sup) and close < sup and (not useEma or close < emaVal)
+
+if canEnter and longOK
+    sl      = slType == "Candle" ? low : sup
+    riskAmt = close - sl
+    tp      = close + riskAmt * rr
+    qty     = riskAmt > 0 ? math.max(1, math.round(riskPerTrade / riskAmt)) : 1
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("XL", "Long", stop=sl, limit=tp)
     weekTraded := true
 
-else if canEnter and brokeShort and not brokeLong
-    shortRisk = res - close
-    shortTP   = close - shortRisk * rr
-    shortQty  = shortRisk > 0 ? math.max(1, math.round(riskPerTrade / shortRisk)) : 1
-    strategy.entry("Short", strategy.short, qty=shortQty)
-    strategy.exit("XS", "Short", stop=res, limit=shortTP)
+else if canEnter and shortOK
+    sl      = slType == "Candle" ? high : res
+    riskAmt = sl - close
+    tp      = close - riskAmt * rr
+    qty     = riskAmt > 0 ? math.max(1, math.round(riskPerTrade / riskAmt)) : 1
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("XS", "Short", stop=sl, limit=tp)
     weekTraded := true
 
 // =================== FRIDAY CLOSE =================== //
@@ -92,6 +101,7 @@ if isFriday and strategy.position_size != 0
 plot(not na(res) ? res : na, "Resistance", color=color.red,   linewidth=2, style=plot.style_stepline)
 plot(not na(sup) ? sup : na, "Support",    color=color.green, linewidth=2, style=plot.style_stepline)
 plot(not na(weekOpen) ? weekOpen : na, "Week Open", color=color.new(color.gray, 50), linewidth=1, style=plot.style_stepline)
+plot(useEma ? emaVal : na, "EMA", color=color.orange, linewidth=1)
 
 if isNewWeek and inWindow
     label.new(bar_index, high * 1.002,
