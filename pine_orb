@@ -2,14 +2,16 @@
 // Weekly Round-Level Breakout Strategy (Daily Timeframe)
 // - First day of week: capture open, find nearest round levels above/below
 // - Place stop orders at those round levels; first to break sets the direction
-// - Close all positions on Friday
+// - SL = opposite round level, TP = based on R:R
+// - Close any open position on Friday
 // - Run on DAILY timeframe
 
 strategy(title="Weekly Round Level Breakout", overlay=true,
      pyramiding=0, initial_capital=100000,
      commission_type=strategy.commission.cash_per_order,
      commission_value=0, slippage=0,
-     process_orders_on_close=false)
+     process_orders_on_close=true,
+     close_entries_rule="ANY")
 
 // ===================== INPUTS ===================== //
 
@@ -29,10 +31,8 @@ inWindow = time >= startDate and time <= endDate
 
 // ===================== WEEK DETECTION ===================== //
 
-// Detect first trading day of the week (handles Monday holidays)
-isNewWeek   = ta.change(time("W")) != 0
-isFriday    = dayofweek == dayofweek.friday
-isLastBarOfWeek = isFriday or (dayofweek != dayofweek.friday and ta.change(time("W"))[1] == 0 and dayofweek == dayofweek.thursday)
+isNewWeek = ta.change(time("W")) != 0
+isFriday  = dayofweek == dayofweek.friday
 
 // ===================== ROUND LEVEL LOGIC ===================== //
 
@@ -44,61 +44,64 @@ roundBelow(price, interval) =>
 
 // ===================== STATE VARIABLES ===================== //
 
-var float weekOpen          = na
-var float roundResistance   = na
-var float roundSupport      = na
-var bool  weekActive        = false
-var bool  filled            = false
+var float weekOpen        = na
+var float roundRes        = na
+var float roundSup        = na
+var bool  weekActive      = false
+var bool  tradeTakenThisWeek = false
 
 // ===================== NEW WEEK: SET LEVELS ===================== //
 
 if isNewWeek
-    weekOpen        := open
-    roundResistance := roundAbove(open, roundLevel)
-    roundSupport    := roundBelow(open, roundLevel)
-    filled          := false
-    weekActive      := inWindow
+    weekOpen  := open
+    roundRes  := roundAbove(open, roundLevel)
+    roundSup  := roundBelow(open, roundLevel)
+    tradeTakenThisWeek := false
+    weekActive := inWindow
 
-    // If open is exactly on a round level, push out by one interval
-    if roundResistance == open
-        roundResistance := open + roundLevel
-    if roundSupport == open
-        roundSupport := open - roundLevel
+    // If open lands exactly on a round level, push out by one interval
+    if roundRes == open
+        roundRes := open + roundLevel
+    if roundSup == open
+        roundSup := open - roundLevel
 
-    // Cancel stale orders from prior week
-    strategy.cancel_all()
+    // Cancel leftover pending entries from prior week
+    strategy.cancel("Long")
+    strategy.cancel("Short")
 
 // ===================== ENTRY LOGIC ===================== //
-// Re-submit stop orders EVERY bar of the week until one fills.
-// This ensures they stay active (TradingView can expire pending orders).
-// Once one side fills, we stop placing orders and cancel the other.
+// Place stop orders every bar until one fills (or week ends).
+// process_orders_on_close=true means orders evaluate against THIS bar's OHLC.
+// So Monday's orders CAN trigger on Monday itself.
 
-longEntry   = roundResistance + breakBuffer
-longSL      = roundSupport
-longRisk    = longEntry - longSL
-longTP      = longEntry + (longRisk * riskReward)
-longQty     = longRisk > 0 ? math.max(1, math.round(riskPerTrade / longRisk)) : 1
+canTrade = weekActive and not tradeTakenThisWeek and strategy.position_size == 0 and not isFriday
 
-shortEntry  = roundSupport - breakBuffer
-shortSL     = roundResistance
-shortRisk   = shortSL - shortEntry
-shortTP     = shortEntry - (shortRisk * riskReward)
-shortQty    = shortRisk > 0 ? math.max(1, math.round(riskPerTrade / shortRisk)) : 1
+longEntry  = roundRes + breakBuffer
+longSL     = roundSup
+longRisk   = longEntry - longSL
+longTP     = longEntry + (longRisk * riskReward)
+longQty    = longRisk > 0 ? math.max(1, math.round(riskPerTrade / longRisk)) : 1
 
-if weekActive and not filled and strategy.opentrades == 0 and not isFriday
+shortEntry = roundSup - breakBuffer
+shortSL    = roundRes
+shortRisk  = shortSL - shortEntry
+shortTP    = shortEntry - (shortRisk * riskReward)
+shortQty   = shortRisk > 0 ? math.max(1, math.round(riskPerTrade / shortRisk)) : 1
+
+if canTrade
     strategy.entry("Long", strategy.long, qty=longQty, stop=longEntry,
          comment="L@" + str.tostring(longEntry, "#.##"))
     strategy.exit("Long-Exit", "Long", stop=longSL, limit=longTP,
-         comment_loss="SL Hit", comment_profit="TP Hit")
+         comment_loss="SL", comment_profit="TP")
 
     strategy.entry("Short", strategy.short, qty=shortQty, stop=shortEntry,
          comment="S@" + str.tostring(shortEntry, "#.##"))
     strategy.exit("Short-Exit", "Short", stop=shortSL, limit=shortTP,
-         comment_loss="SL Hit", comment_profit="TP Hit")
+         comment_loss="SL", comment_profit="TP")
 
-// Once one side fills, cancel the opposite and mark filled
-if strategy.opentrades > 0 and not filled
-    filled := true
+// Once a position opens, mark this week as traded and cancel the other side
+if strategy.position_size != 0 and not tradeTakenThisWeek
+    tradeTakenThisWeek := true
 if strategy.position_size > 0
     strategy.cancel("Short")
 if strategy.position_size < 0
@@ -106,23 +109,23 @@ if strategy.position_size < 0
 
 // ===================== FRIDAY CLOSE ===================== //
 
-if isFriday and weekActive
+if isFriday
     strategy.close_all(comment="Fri Close")
     strategy.cancel_all()
     weekActive := false
 
 // ===================== PLOTTING ===================== //
 
-plot(weekActive ? roundResistance : na, "Round Resistance", color=color.new(color.red, 0),   linewidth=2, style=plot.style_stepline)
-plot(weekActive ? roundSupport    : na, "Round Support",    color=color.new(color.green, 0), linewidth=2, style=plot.style_stepline)
-plot(weekActive ? weekOpen        : na, "Week Open",        color=color.new(color.gray, 50), linewidth=1, style=plot.style_stepline)
+plot(weekActive ? roundRes  : na, "Round Resistance", color=color.new(color.red, 0),   linewidth=2, style=plot.style_stepline)
+plot(weekActive ? roundSup  : na, "Round Support",    color=color.new(color.green, 0), linewidth=2, style=plot.style_stepline)
+plot(weekActive ? weekOpen  : na, "Week Open",        color=color.new(color.gray, 50), linewidth=1, style=plot.style_stepline)
 
-// Monday label
+// Monday label with levels
 if isNewWeek and inWindow
     label.new(bar_index, high * 1.002,
-         "R: " + str.tostring(roundResistance, "#.##") +
+         "R: " + str.tostring(roundRes, "#.##") +
          "\nO: " + str.tostring(weekOpen, "#.##") +
-         "\nS: " + str.tostring(roundSupport, "#.##"),
+         "\nS: " + str.tostring(roundSup, "#.##"),
          color=color.new(color.blue, 80), textcolor=color.white,
          style=label.style_label_down, size=size.small)
 
@@ -134,9 +137,9 @@ if barstate.islast
     table.cell(tbl, 0, 1, "Round Interval",   bgcolor=#555555, text_color=color.white)
     table.cell(tbl, 1, 1, str.tostring(roundLevel, "#.##"),       bgcolor=#555555, text_color=color.yellow)
     table.cell(tbl, 0, 2, "Resistance",       bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 2, str.tostring(roundResistance, "#.##"),  bgcolor=#555555, text_color=color.red)
+    table.cell(tbl, 1, 2, str.tostring(roundRes, "#.##"),         bgcolor=#555555, text_color=color.red)
     table.cell(tbl, 0, 3, "Support",          bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 3, str.tostring(roundSupport, "#.##"),     bgcolor=#555555, text_color=color.green)
+    table.cell(tbl, 1, 3, str.tostring(roundSup, "#.##"),         bgcolor=#555555, text_color=color.green)
     table.cell(tbl, 0, 4, "Week Open",        bgcolor=#555555, text_color=color.white)
     table.cell(tbl, 1, 4, str.tostring(weekOpen, "#.##"),         bgcolor=#555555, text_color=color.white)
     table.cell(tbl, 0, 5, "Risk/Trade",       bgcolor=#555555, text_color=color.white)
