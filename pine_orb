@@ -35,10 +35,12 @@ rr           = input.float(3.0,   "Risk : Reward",        minval=0.5, step=0.5, 
 riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
 slAtrMult    = input.float(1.5,   "Stop Loss (×ATR)",     minval=0.5, step=0.25, group=grp2,
                   tooltip="Stop distance as ATR multiple. 1.5 = balanced. 1.0 = tight. 2.0 = wide.")
-trailEmaLen  = input.int(10,      "Trail EMA Length",     minval=3, maxval=50, group=grp2,
-                  tooltip="EMA for trailing stop once profitable. 10 = tight trail, 20 = loose.")
+trailEmaLen  = input.int(20,      "Trail EMA Length",     minval=3, maxval=50, group=grp2,
+                  tooltip="EMA for trailing stop. 20 = rides big moves. 10 = tighter.")
 trailAtrMult = input.float(0.5,   "Trail ATR Buffer",     minval=0, step=0.25, group=grp2,
                   tooltip="Buffer below/above trail EMA. Cushion against wicks.")
+removeTpR    = input.float(2.0,   "Remove TP At (R)",     minval=0.5, step=0.5, group=grp2,
+                  tooltip="Once profit reaches this R, remove fixed TP and trail only. Lets big winners run.")
 fridayHoldR  = input.float(0.5,   "Friday Hold Min (R)",  minval=0, step=0.25, group=grp2,
                   tooltip="Hold through weekend if profit >= this R. Otherwise close Friday.")
 
@@ -77,6 +79,7 @@ var int   entryDir    = 0   // 1 = long, -1 = short, 0 = flat
 var float trailSL     = na
 var float entryTP     = na
 var int   cooloffLeft = 0
+var bool  tpRemoved   = false  // true once we remove fixed TP to let winner run
 
 // =========== FIRST DAY OF WEEK: CAPTURE LEVELS =========== //
 
@@ -127,6 +130,7 @@ if canEnter and longOK
     entryDir   := 1
     trailSL    := sl
     entryTP    := tp
+    tpRemoved  := false
     weekTraded := true
 
 else if canEnter and shortOK
@@ -141,28 +145,37 @@ else if canEnter and shortOK
     entryDir   := -1
     trailSL    := sl
     entryTP    := tp
+    tpRemoved  := false
     weekTraded := true
 
-// =================== TRAILING STOP =================== //
-// Activates at 1R profit. Uses EMA - ATR buffer.
-// Only tightens, never loosens.
+// =================== TRAILING STOP + HYBRID TP =================== //
+// Phase 1: Fixed TP active, EMA trail starts at 1R.
+// Phase 2: Once profit >= removeTpR, remove fixed TP → pure trail.
+// This lets small winners cash out at TP, but big moves ride the wave.
 
 if strategy.position_size != 0 and not na(entryPrice) and not na(entryRisk) and entryDir != 0
     float currPnl = entryDir == 1 ? (close - entryPrice) : (entryPrice - close)
     float currR   = entryRisk > 0 ? currPnl / entryRisk : 0.0
+
+    // Remove TP once we reach the threshold — let it ride
+    if currR >= removeTpR
+        tpRemoved := true
 
     if entryDir == 1
         if currR >= 1.0
             float emaTrail = trailEma - trailAtrMult * atrVal
             if not na(emaTrail) and emaTrail > trailSL
                 trailSL := emaTrail
-        strategy.exit("XL", "Long", stop=trailSL, limit=entryTP)
+        // If TP removed, set limit far away (effectively no TP)
+        float activeTP = tpRemoved ? entryPrice + entryRisk * 100 : entryTP
+        strategy.exit("XL", "Long", stop=trailSL, limit=activeTP)
     else
         if currR >= 1.0
             float emaTrail = trailEma + trailAtrMult * atrVal
             if not na(emaTrail) and emaTrail < trailSL
                 trailSL := emaTrail
-        strategy.exit("XS", "Short", stop=trailSL, limit=entryTP)
+        float activeTP = tpRemoved ? entryPrice - entryRisk * 100 : entryTP
+        strategy.exit("XS", "Short", stop=trailSL, limit=activeTP)
 
 // =================== FRIDAY CLOSE =================== //
 
@@ -183,6 +196,7 @@ if strategy.position_size == 0 and strategy.position_size[1] != 0
     entryRisk  := na
     trailSL    := na
     entryTP    := na
+    tpRemoved  := false
 
 // ======================== PLOTTING ======================== //
 
