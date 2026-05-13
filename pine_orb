@@ -6,7 +6,7 @@ strategy(title="ORB Breakout", overlay=true,
      pyramiding=0, initial_capital=100000,
      commission_type=strategy.commission.cash_per_order,
      commission_value=0, slippage=0)
- 
+
 //All Variables 
 var boxLow_ = float(na)
 var boxHigh_ = float(na) 
@@ -48,11 +48,12 @@ var line boxLine_Resistance = na
 
 //Take Profit 1:1 
 riskReward = input.float(1, "Risk Reward e.g. 1 for 1:1, 2 for 1:2, 3 for 1:3 etc.")
+ema_ = input(defval = 5, title = "EMA")
 
-From_Year  = input(defval = 2026, title = "From Year")
-From_Month = input(defval = 1, title = "From Month")
-From_Day   = input(defval = 1, title = "From Day" )
-To_Year    = input(defval = 2026, title = "To Year") 
+From_Year  = input(defval = 2023, title = "From Year")
+From_Month = input(defval = 12, title = "From Month")
+From_Day   = input(defval = 17, title = "From Day" )
+To_Year    = input(defval = 2024, title = "To Year") 
 To_Month   = input(defval = 5, title = "To Month")
 To_Day     = input(defval = 31, title = "To Day" )
 // Get user input
@@ -312,8 +313,8 @@ plotchar(  long_qty , "long_qty" , location = location.top)
 //label.new(bar_index, low, color=#ffffff, text=str.tostring(strategy.position_entry_name  ))
  
 
-//Qty and Amount table  
-var tbl = table.new(position.top_right, 2, 3)   
+//Qty and Amount table 	
+var tbl = table.new(position.top_right, 2, 3)	
 if (true)
 
     qty_bar0 = math.round( risk_per_trade_Chart/(high-low) )
@@ -361,7 +362,8 @@ plotshape(current_bar_is_outside and last_bar_is_inside == 1, style = shape.labe
 plotshape(current_bar_is_outside and last_bar_is_outside == 1, style = shape.labelup, text = "OO", location = location.bottom, color = color.white, textcolor = color.black ) 
 
 //5 EMA  
-plot(ta.ema(close, 5), color=color.white) 
+plot(ta.ema(close, ema_), color=#f3db01) 
+
 
 //RSI 
 
@@ -403,3 +405,6 @@ if (false)
         line.set_x2(boxLine_Resistance, bar_index)   // Update x2 position of the line (move it to the right)
     
 
+
+// Plot Volumn 
+//plot(volume, title="Volume", style=plot.style_columns, color=color.new(color.blue, 0), format=format.volume, force_overlay = true) 
