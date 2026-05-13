@@ -44,10 +44,13 @@ useEma = emaLen > 0
 
 // =================== STATE VARIABLES =================== //
 
-var float weekOpen   = na
-var float res        = na
-var float sup        = na
-var bool  weekTraded = false
+var float weekOpen    = na
+var float res         = na
+var float sup         = na
+var bool  weekTraded  = false
+var float entryPrice  = na
+var float entryRisk   = na
+var int   entryDir    = 0   // 1 = long, -1 = short, 0 = flat
 
 // =========== FIRST DAY OF WEEK: CAPTURE LEVELS =========== //
 
@@ -80,6 +83,9 @@ if canEnter and longOK
     qty     = riskAmt > 0 ? math.max(1, math.round(riskPerTrade / riskAmt)) : 1
     strategy.entry("Long", strategy.long, qty=qty)
     strategy.exit("XL", "Long", stop=sl, limit=tp)
+    entryPrice := close
+    entryRisk  := riskAmt
+    entryDir   := 1
     weekTraded := true
 
 else if canEnter and shortOK
@@ -89,12 +95,25 @@ else if canEnter and shortOK
     qty     = riskAmt > 0 ? math.max(1, math.round(riskPerTrade / riskAmt)) : 1
     strategy.entry("Short", strategy.short, qty=qty)
     strategy.exit("XS", "Short", stop=sl, limit=tp)
+    entryPrice := close
+    entryRisk  := riskAmt
+    entryDir   := -1
     weekTraded := true
 
 // =================== FRIDAY CLOSE =================== //
+// Keep holding if profitable >= 0.5R on Friday; otherwise close.
 
 if isFriday and strategy.position_size != 0
-    strategy.close_all(comment="Fri Close")
+    float currPnl = entryDir == 1 ? (close - entryPrice) : (entryPrice - close)
+    float currR   = entryRisk > 0 ? currPnl / entryRisk : 0.0
+    if currR < 0.5
+        strategy.close_all(comment="Fri Close")
+
+// Reset entry tracking when position actually closes (was in, now flat)
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    entryDir   := 0
+    entryPrice := na
+    entryRisk  := na
 
 // ======================== PLOTTING ======================== //
 
