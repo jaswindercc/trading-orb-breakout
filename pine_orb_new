@@ -23,8 +23,8 @@ roundInt     = input.float(10.0,  "Round Level Interval",  minval=0.5, step=0.5,
                   tooltip="10 → 100,110,120 (best for SPY)\n5 → 100,105,110\n1 → low-priced stocks")
 stLen        = input.int(10,      "Supertrend ATR Length", minval=1,             group=grp1,
                   tooltip="Supertrend ATR period. 10 = standard.")
-stMult       = input.float(2.5,   "Supertrend Multiplier", minval=0.5, step=0.5, group=grp1,
-                  tooltip="Supertrend multiplier. 2.5 = optimal for SPY daily. Lower = more sensitive.")
+stMult       = input.float(2.0,   "Supertrend Multiplier", minval=0.5, step=0.5, group=grp1,
+                  tooltip="Supertrend multiplier. 2.0 = moderate filter. Lower = more sensitive.")
 minBodyPct   = input.float(50.0,  "Min Candle Body %",    minval=0, maxval=100, step=10, group=grp1,
                   tooltip="Breakout candle body must be this % of total range. Filters weak/wick candles. 50 = solid candle.")
 cooloffWeeks = input.int(1,       "Cooloff Weeks After Loss", minval=0, maxval=3, group=grp1,
