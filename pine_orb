@@ -2,15 +2,12 @@
 // ============================================================
 // WEEKLY ORB - Round Level Breakout (Daily Timeframe)
 // ============================================================
-// HOW IT WORKS:
-//   1. First trading day of week (Mon or Tue if Mon is holiday):
-//      - Capture the weekly OPEN price
-//      - Find nearest round levels ABOVE (resistance) and BELOW (support)
-//   2. During the week: if a daily bar breaks resistance → Long.
-//      If it breaks support → Short. Only ONE trade per week.
-//   3. SL = opposite round level. TP = entry + risk * R:R
-//   4. If neither SL nor TP hit by Friday → close at Friday's close.
-//   5. Never hold past Friday.
+// 1. First day of week: capture open, find nearest round levels
+// 2. If a daily candle breaks above resistance → Long at close
+//    If it breaks below support → Short at close
+// 3. SL = opposite round level. TP = entry + risk * R:R
+// 4. Friday: force close. Never hold past Friday.
+// 5. One trade per week max.
 // ============================================================
 
 strategy("Weekly ORB", overlay=true,
@@ -24,13 +21,10 @@ strategy("Weekly ORB", overlay=true,
 // ======================== INPUTS ======================== //
 
 grp1 = "Strategy"
-rr          = input.float(3.0,   "Risk : Reward",        minval=0.5, step=0.5, group=grp1,
-                 tooltip="Reward multiple of risk. 3 = risking $1 to make $3")
-riskPerTrade = input.float(200,  "Risk $ Per Trade",      minval=1,             group=grp1)
-roundInt     = input.float(5.0,  "Round Level Interval",  minval=0.5, step=0.5, group=grp1,
-                 tooltip="Spacing of round numbers.\n5 → 100,105,110...\n10 → 100,110,120...\n1 → for low-priced stocks")
-buffer       = input.float(0.0,  "Break Buffer",          minval=0.0, step=0.01, group=grp1,
-                 tooltip="Extra distance past the round level for entry. 0 = enter at the round level.")
+rr           = input.float(3.0,  "Risk : Reward",       minval=0.5, step=0.5, group=grp1)
+riskPerTrade = input.float(200,  "Risk $ Per Trade",     minval=1,             group=grp1)
+roundInt     = input.float(5.0,  "Round Level Interval", minval=0.5, step=0.5, group=grp1,
+                  tooltip="Spacing between round numbers.\n5 → 100,105,110\n10 → 100,110,120\n1 → low-priced stocks")
 
 grp2 = "Backtest Dates"
 startDate = input.time(timestamp("2026-01-01"), "Start Date", group=grp2)
@@ -41,80 +35,64 @@ inWindow = time >= startDate and time <= endDate
 // =================== WEEK DETECTION =================== //
 
 isNewWeek = ta.change(time("W")) != 0
-isFriday  = (dayofweek == dayofweek.friday)
+isFriday  = dayofweek == dayofweek.friday
 
 // =================== STATE VARIABLES =================== //
 
 var float weekOpen   = na
-var float res        = na   // round level above open (resistance)
-var float sup        = na   // round level below open (support)
+var float res        = na    // resistance: round level above open
+var float sup        = na    // support: round level below open
 var bool  weekTraded = false
 
-// =============== FIRST DAY OF WEEK: SET LEVELS =============== //
+// =========== FIRST DAY OF WEEK: CAPTURE LEVELS =========== //
 
 if isNewWeek
     weekOpen := open
-
-    // Nearest round levels
     res := math.ceil(open / roundInt) * roundInt
     sup := math.floor(open / roundInt) * roundInt
-
-    // If open sits exactly on a round level, push one interval out
     if res == open
         res := open + roundInt
     if sup == open
         sup := open - roundInt
-
     weekTraded := false
 
-    // Kill any leftover orders from last week
-    strategy.cancel_all()
-
 // =================== ENTRY LOGIC =================== //
-// Each day: did this bar break resistance or support?
-// Enter via stop order at the round level (fills at that price).
-// Only enter if: in date window, no trade yet this week, flat, not Friday.
+// Check each daily bar: did it break resistance or support?
+// Enter with MARKET order (fills at bar's close).
+// Calculate SL/TP from actual fill price.
 
-longEntry  = res + buffer
-shortEntry = sup - buffer
-risk       = longEntry - shortEntry
-longTP     = longEntry + risk * rr
-shortTP    = shortEntry - risk * rr
-qty        = risk > 0 ? math.max(1, math.round(riskPerTrade / risk)) : 1
-
-brokeLong  = not na(res) and high >= longEntry
-brokeShort = not na(sup) and low  <= shortEntry
+brokeLong  = not na(res) and high >= res
+brokeShort = not na(sup) and low  <= sup
 flat       = strategy.position_size == 0
+canEnter   = inWindow and not weekTraded and flat and not isFriday
 
-if inWindow and not weekTraded and flat and not isFriday
-    if brokeLong and not brokeShort
-        // Resistance broken, support held → GO LONG
-        strategy.entry("Long", strategy.long, qty=qty, stop=longEntry)
-        strategy.exit("XL", "Long", stop=sup, limit=longTP)
-        weekTraded := true
+if canEnter and brokeLong and not brokeShort
+    longRisk = close - sup
+    longTP   = close + longRisk * rr
+    longQty  = longRisk > 0 ? math.max(1, math.round(riskPerTrade / longRisk)) : 1
+    strategy.entry("Long", strategy.long, qty=longQty)
+    strategy.exit("XL", "Long", stop=sup, limit=longTP)
+    weekTraded := true
 
-    else if brokeShort and not brokeLong
-        // Support broken, resistance held → GO SHORT
-        strategy.entry("Short", strategy.short, qty=qty, stop=shortEntry)
-        strategy.exit("XS", "Short", stop=res, limit=shortTP)
-        weekTraded := true
+else if canEnter and brokeShort and not brokeLong
+    shortRisk = res - close
+    shortTP   = close - shortRisk * rr
+    shortQty  = shortRisk > 0 ? math.max(1, math.round(riskPerTrade / shortRisk)) : 1
+    strategy.entry("Short", strategy.short, qty=shortQty)
+    strategy.exit("XS", "Short", stop=res, limit=shortTP)
+    weekTraded := true
 
-// =================== FRIDAY: CLOSE EVERYTHING =================== //
+// =================== FRIDAY CLOSE =================== //
 
-if isFriday
-    if strategy.position_size != 0
-        strategy.close_all(comment="Fri Close")
-    strategy.cancel_all()
+if isFriday and strategy.position_size != 0
+    strategy.close_all(comment="Fri Close")
 
 // ======================== PLOTTING ======================== //
 
-showLevels = not isFriday or not weekTraded
+plot(not na(res) ? res : na, "Resistance", color=color.red,   linewidth=2, style=plot.style_stepline)
+plot(not na(sup) ? sup : na, "Support",    color=color.green, linewidth=2, style=plot.style_stepline)
+plot(not na(weekOpen) ? weekOpen : na, "Week Open", color=color.new(color.gray, 50), linewidth=1, style=plot.style_stepline)
 
-plot(showLevels and not na(res) ? res : na, "Resistance", color=color.red,   linewidth=2, style=plot.style_stepline)
-plot(showLevels and not na(sup) ? sup : na, "Support",    color=color.green, linewidth=2, style=plot.style_stepline)
-plot(showLevels and not na(weekOpen) ? weekOpen : na, "Week Open", color=color.new(color.gray, 50), linewidth=1, style=plot.style_stepline)
-
-// Label on first day of week
 if isNewWeek and inWindow
     label.new(bar_index, high * 1.002,
          "R " + str.tostring(res, "#.##") +
@@ -123,18 +101,15 @@ if isNewWeek and inWindow
          color=color.new(color.blue, 80), textcolor=color.white,
          style=label.style_label_down, size=size.small)
 
-// Info table (top-right corner)
-var tbl = table.new(position.top_right, 2, 6, bgcolor=color.new(color.black, 80))
+var tbl = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 80))
 if barstate.islast
     table.cell(tbl, 0, 0, "R:R",            bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 0, "1:" + str.tostring(rr, "#.#"),    bgcolor=#555555, text_color=color.yellow)
+    table.cell(tbl, 1, 0, "1:" + str.tostring(rr, "#.#"),   bgcolor=#555555, text_color=color.yellow)
     table.cell(tbl, 0, 1, "Round Interval",  bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 1, str.tostring(roundInt, "#.##"),     bgcolor=#555555, text_color=color.yellow)
+    table.cell(tbl, 1, 1, str.tostring(roundInt, "#.##"),    bgcolor=#555555, text_color=color.yellow)
     table.cell(tbl, 0, 2, "Resistance",      bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 2, str.tostring(res, "#.##"),          bgcolor=#555555, text_color=color.red)
+    table.cell(tbl, 1, 2, str.tostring(res, "#.##"),         bgcolor=#555555, text_color=color.red)
     table.cell(tbl, 0, 3, "Support",         bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 3, str.tostring(sup, "#.##"),          bgcolor=#555555, text_color=color.green)
-    table.cell(tbl, 0, 4, "Week Open",       bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 4, str.tostring(weekOpen, "#.##"),     bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 0, 5, "Risk/Trade",      bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 5, "$" + str.tostring(riskPerTrade, "#"), bgcolor=#555555, text_color=color.yellow)
+    table.cell(tbl, 1, 3, str.tostring(sup, "#.##"),         bgcolor=#555555, text_color=color.green)
+    table.cell(tbl, 0, 4, "Risk/Trade",      bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 4, "$" + str.tostring(riskPerTrade, "#"), bgcolor=#555555, text_color=color.yellow)
