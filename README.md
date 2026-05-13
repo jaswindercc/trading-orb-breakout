@@ -1,53 +1,68 @@
-# Weekly ORB — Round Level Breakout
+# Weekly ORB v3 — Dual SMA Crossover Strategy
 
-## Setup (Every Monday)
-
-1. Note the **weekly open** price (first candle of the week)
-2. **Resistance** = nearest round number ABOVE the open
-3. **Support** = nearest round number BELOW the open
-4. If open lands exactly on a round number, push one interval out
-
-Example: open = 558, interval = 10 → Resistance = 560, Support = 550
+A simple, mechanical weekly trading strategy for SPY (daily timeframe).
 
 ---
 
 ## Entry Rules
 
-1. Check each daily candle **Monday and Tuesday** (configurable)
-2. **LONG** if daily candle **closes above resistance** AND close is above the **20 EMA**
-3. **SHORT** if daily candle **closes below support** AND close is below the **20 EMA**
-4. If price wicks through both levels but closes above resistance → Long. Closes below support → Short
-5. Entry fills at the **bar's close price**
-6. **One trade per week max**
-7. **No entries on Friday**
+Only **two conditions** for entry:
+
+1. **LONG**: Fast SMA (10) crosses above Slow SMA (50)
+2. **SHORT**: Fast SMA (10) crosses below Slow SMA (50)
+
+**Filters** (not entry conditions — these prevent overtrading):
+- One trade per week max
+- No entries on Friday
+- Skip 1 week after a stop loss (cooloff)
 
 ---
 
 ## Exit Rules
 
-| Exit Type | Long | Short |
-|-----------|------|-------|
-| **Stop Loss (Candle)** | Entry bar's low | Entry bar's high |
-| **Stop Loss (Round Level)** | Support level | Resistance level |
-| **Take Profit** | Entry + (risk × R:R) | Entry − (risk × R:R) |
-| **Friday Close** | Close at Friday's close | Close at Friday's close |
+### Stop Loss
+- Set at **1.5 × ATR** below entry (long) or above entry (short)
+- Once trade reaches **+1R profit**, stop tightens to EMA(20) - 0.5×ATR
+- Stop only moves in your favor, never loosens
 
-- First exit to trigger wins (SL, TP, or Friday close)
-- **Never hold past Friday**
+### Take Profit (Hybrid)
+- Starts as a fixed **3:1 R:R** target
+- Once trade reaches **+2R profit**, the fixed TP is **removed**
+- From that point, only the EMA(20) trailing stop can exit the trade
+- This lets big winners run past 3R
+
+### Friday Close
+- If it's Friday and profit is **less than 0.5R**, close the trade
+- If profit is **≥ 0.5R** on Friday, hold through the weekend
+
+### Cooloff
+- After a losing trade (stopped out), skip the next week entirely
+- Reduces consecutive losses
 
 ---
 
 ## Settings
 
-| Setting | Default | Notes |
-|---------|---------|-------|
-| R:R | 1:3 | Reward multiple of risk |
-| Risk/Trade | $100 | Max dollar risk per trade |
-| Round Interval | 10 | Round number spacing (10 best for SPY) |
-| EMA | 20 | Trend filter (0 = disabled) |
-| SL Type | Candle | "Candle" (tighter, optimal) or "Round Level" |
-| Last Entry Day | Tue (3) | Latest day to enter (2=Mon, 3=Tue, 4=Wed, 5=Thu) |
-- [ ] Improved handling of "Boomer" stocks (low volatility).
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| Fast SMA | 10 | Short-term trend |
+| Slow SMA | 50 | Long-term trend |
+| Cooloff Weeks | 1 | Weeks to skip after a loss |
+| R:R | 3.0 | Initial take profit target |
+| Risk/Trade | $100 | Dollar risk per trade |
+| Stop Loss (×ATR) | 1.5 | Stop distance |
+| Trail EMA | 20 | EMA for trailing stop |
+| Trail ATR Buffer | 0.5 | Cushion below trail EMA |
+| Remove TP At (R) | 2.0 | Remove fixed TP at this profit level |
+| Friday Hold Min (R) | 0.5 | Min profit to hold over weekend |
+
+---
+
+## How It Works (Plain English)
+
+> Enter when the fast moving average crosses the slow one — that means the short-term trend just flipped.
+> Risk 1.5×ATR. Target 3:1. But if the trade is running hot past 2R, rip the target off and ride it with the 20 EMA until the trend actually breaks.
+> Skip a week after a loss. Don't hold garbage over weekends.
 
 ---
 
