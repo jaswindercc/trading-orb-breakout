@@ -1,11 +1,11 @@
 //@version=5
 // ============================================================
-// WEEKLY ORB v3 - SMA Crossover
+// WEEKLY ORB v3 - SMA Crossover + Big Candle Filter
 // ============================================================
-// Entry: Fast SMA crosses slow SMA.
+// Entry: Fast SMA crosses slow SMA + candle not oversized.
 // Stop:  ATR-based (adaptive).
 // Trail: Pure EMA trailing stop, no fixed TP.
-// One trade at a time. No other restrictions.
+// Big candle filter: skips entry after outsized bars to avoid drawdowns.
 
 strategy("Weekly ORB v3", overlay=true,
      pyramiding=0,
@@ -24,8 +24,8 @@ slowLen      = input.int(50,      "Slow SMA Length",       minval=20, maxval=200
                   tooltip="Long-term moving average. Defines the trend direction.")
 maxDistAtr   = input.float(1.5,   "Max Distance From Fast SMA (×ATR)", minval=0.5, step=0.5, group=grp1,
                   tooltip="Skip entry if price is further than this many ATRs from fast SMA. Prevents chasing.")
-cooloffWeeks = input.int(1,       "Cooloff Weeks After Loss", minval=0, maxval=3, group=grp1,
-                  tooltip="Skip this many weeks after a stop loss. Reduces consecutive losses.")
+maxBarAtr    = input.float(2.0,   "Max Candle Size (×ATR)", minval=1.0, step=0.5, group=grp1,
+                  tooltip="Skip entry if today's bar range > this × ATR. Avoids chasing after big moves that often reverse.")
 
 grp2 = "Risk Management"
 riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
@@ -65,13 +65,7 @@ var float entryPrice  = na
 var float entryRisk   = na
 var int   entryDir    = 0   // 1 = long, -1 = short, 0 = flat
 var float trailSL     = na
-var int   cooloffLeft = 0
 var int   lastCrossDir = 0  // 1 = last cross was bullish, -1 = bearish. Prevents same-direction re-entry.
-
-// =========== WEEKLY COOLOFF COUNTDOWN =========== //
-
-if isNewWeek and cooloffLeft > 0
-    cooloffLeft -= 1
 
 // =================== ENTRY CONDITIONS =================== //
 // Long:  fast SMA crosses above slow SMA (only if last cross was not already bullish)
@@ -84,9 +78,9 @@ if ta.crossunder(fastSma, slowSma)
     lastCrossDir := -1
 
 flat      = strategy.position_size == 0
-inCooloff = cooloffLeft > 0
 notTooFar = math.abs(close - fastSma) <= maxDistAtr * atrVal
-canEnter  = inWindow and flat and not inCooloff and notTooFar
+smallBar  = (high - low) <= maxBarAtr * atrVal
+canEnter  = inWindow and flat and notTooFar and smallBar
 
 longOK  = lastCrossDir == 1 and lastCrossDir[1] != 1
 shortOK = lastCrossDir == -1 and lastCrossDir[1] != -1
@@ -139,9 +133,6 @@ if strategy.position_size != 0 and not na(entryPrice) and not na(entryRisk) and 
 // =================== RESET ON CLOSE =================== //
 
 if strategy.position_size == 0 and strategy.position_size[1] != 0
-    float closePnl = entryDir == 1 ? (close[1] - entryPrice) : (entryPrice - close[1])
-    if closePnl <= 0
-        cooloffLeft := cooloffWeeks
     entryDir   := 0
     entryPrice := na
     entryRisk  := na
