@@ -2,9 +2,9 @@
 // ============================================================
 // WEEKLY ORB v3 - SMA Crossover (Multi-Stock Optimized)
 // ============================================================
-// Entry: Fast SMA crosses slow SMA + candle size filter.
+// Entry: Fast SMA crosses slow SMA + max candle size filter.
 // Stop:  ATR-based (2.0× = wide enough for volatile stocks).
-// Trail: EMA trailing stop, delayed activation at 1.5R.
+// Trail: EMA trailing stop, delayed activation at 2.5R.
 // Tested across SPY, AAPL, NVDA, TSLA, META, GOOGL, AMD.
 
 strategy("Weekly ORB v3", overlay=true,
@@ -24,8 +24,8 @@ slowLen      = input.int(50,      "Slow SMA Length",       minval=20, maxval=200
                   tooltip="Long-term moving average. Defines the trend direction.")
 maxDistAtr   = input.float(3.0,   "Max Distance From Fast SMA (×ATR)", minval=0.5, step=0.5, group=grp1,
                   tooltip="Skip entry if price is further than this many ATRs from fast SMA. 3.0 works across most stocks.")
-maxBarAtr    = input.float(3.0,   "Max Candle Size (×ATR)", minval=1.0, step=0.5, group=grp1,
-                  tooltip="Skip entry if today's bar range > this × ATR. 3.0 balances filtering vs opportunity.")
+maxBarAtr    = input.float(2.0,   "Max Candle Size (×ATR)", minval=0.5, step=0.5, group=grp1,
+                  tooltip="Skip entry if today's bar range > this × ATR. Filters out overextended gap/news bars.")
 
 grp2 = "Risk Management"
 riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
@@ -35,8 +35,8 @@ trailEmaLen  = input.int(20,      "Trail EMA Length",     minval=3, maxval=50, g
                   tooltip="EMA for trailing stop. 20 = rides big moves. 10 = tighter.")
 trailAtrMult = input.float(1.0,   "Trail ATR Buffer",     minval=0, step=0.25, group=grp2,
                   tooltip="Buffer below/above trail EMA. 1.0 = handles volatile stocks (TSLA, NVDA). 0.5 = tighter.")
-trailStartR  = input.float(1.5,   "Trail Starts At (R)",  minval=0.5, step=0.5, group=grp2,
-                  tooltip="Trailing activates at this R profit. 1.5 = lets momentum build before protecting.")
+trailStartR  = input.float(2.5,   "Trail Starts At (R)",  minval=0.5, step=0.5, group=grp2,
+                  tooltip="Trailing activates at this R profit. 2.5 = lets winners run far before protecting.")
 
 grp3 = "Backtest Dates"
 startDate = input.time(timestamp("2024-01-01"), "Start Date", group=grp3)

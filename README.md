@@ -22,7 +22,7 @@ A trade triggers on the **exact bar** that a crossover happens. Both longs and s
 ### Long Entry
 1. The **SMA(10)** crosses **above** the **SMA(50)** — short-term momentum just flipped bullish.
 2. Price must be within **3.0 × ATR(14)** of the fast SMA — don't chase if price already ran.
-3. Today's candle range (high − low) must be ≤ **3.0 × ATR** — skip abnormally large bars.
+3. Today's candle range (high − low) must be ≤ **2.0 × ATR** — skip overextended gap/news bars.
 4. Must be **flat** (no open position).
 
 ### Short Entry
@@ -36,7 +36,7 @@ Same rules, but SMA(10) crosses **below** SMA(50).
 | Filter | What It Prevents |
 |--------|-----------------|
 | Max Distance 3.0×ATR | Entering after a huge move when the cross is "stale" — price already far from the MA |
-| Max Candle 3.0×ATR | Entering on news/earnings gap bars that distort the signal |
+| Max Candle 2.0×ATR | Entering on overextended gap/news bars where the move already happened |
 | One-cross-one-trade | Taking the same signal twice, stacking losses on whipsaws |
 
 ---
@@ -69,7 +69,7 @@ The strategy has **no fixed take profit**. Winners ride until the trailing stop 
 
 ### How the Trail Works
 
-1. **Trail is dormant** until your open profit reaches **1.5R** (i.e., $150 profit on a $100 risk trade).
+1. **Trail is dormant** until your open profit reaches **2.5R** (i.e., $250 profit on a $100 risk trade).
 2. Once 1.5R is hit, the trailing stop activates:
    - **Long**: trail = EMA(20) − 1.0 × ATR. This sits below the 20-period EMA with an ATR cushion.
    - **Short**: trail = EMA(20) + 1.0 × ATR. Sits above the EMA.
@@ -78,9 +78,10 @@ The strategy has **no fixed take profit**. Winners ride until the trailing stop 
    - Short: trail ratchets down.
 4. Trade closes when price hits the trail stop.
 
-### Why 1.5R Activation?
-- If you trail immediately, you get stopped out on the first pullback after entry — locking in tiny gains.
-- Waiting for 1.5R means the trend has proven itself. You're protecting real profit, not noise.
+### Why 2.5R Activation?
+- If you trail too early (e.g. 1R), you get stopped out on the first pullback — locking in tiny gains.
+- Waiting for 2.5R means the trend has **really proven itself**. You’re protecting a $250+ gain, not noise.
+- This is the single biggest edge: **letting winners run far** before you start tightening. Result: higher profit factor, lower drawdown.
 
 ### Why EMA(20) with 1.0×ATR buffer?
 - EMA(20) follows the short-term trend tightly. It moves with the stock.
@@ -93,7 +94,7 @@ The strategy has **no fixed take profit**. Winners ride until the trailing stop 
 
 | Scenario | What Happens | Typical P&L |
 |----------|-------------|-------------|
-| Stop hit before 1.5R | Hard stop at entry ± 2.0×ATR | −$100 (−1R) |
+| Stop hit before 2.5R | Hard stop at entry ± 2.0×ATR | −$100 (−1R) |
 | Trail activates, then hit | EMA(20) ± 1.0×ATR trail stop | Varies, often +$200 to +$2000+ |
 | No fixed TP | Winners run as long as the trend holds | Unlimited upside |
 
@@ -107,12 +108,12 @@ The strategy has **no fixed take profit**. Winners ride until the trailing stop 
 | Slow SMA | 50 | Long-term trend direction |
 | ATR Period | 14 | Volatility measurement for stops & filters |
 | Max Distance (×ATR) | 3.0 | Don't enter if price is too far from fast SMA |
-| Max Candle (×ATR) | 3.0 | Skip abnormally large bars |
+| Max Candle (×ATR) | 2.0 | Skip overextended gap/news bars |
 | Risk Per Trade | $100 | Fixed dollar risk per trade |
 | Stop Loss (×ATR) | 2.0 | Initial stop distance from entry |
 | Trail EMA Length | 20 | EMA used for trailing stop |
 | Trail ATR Buffer | 1.0 | Cushion below/above trail EMA |
-| Trail Starts At | 1.5R | Minimum profit before trail activates |
+| Trail Starts At | 2.5R | Minimum profit before trail activates |
 
 ---
 
@@ -123,26 +124,29 @@ Day 1:  NVDA at $120. SMA(10) = $118, SMA(50) = $117.
         SMA(10) just crossed above SMA(50). Bullish cross!
         ATR(14) = $4.00.
         Distance from fast SMA: |$120 - $118| = $2 < 3.0 × $4 = $12 ✓
-        Bar range: $3.50 < 3.0 × $4 = $12 ✓
+        Bar range: $5.20 < 2.0 × $4 = $8 ✓ (not overextended)
         → ENTER LONG at $120.
         Stop = $120 - 2.0 × $4 = $112.
         Risk = $8/share. Qty = $100 / $8 = 13 shares.
 
 Day 5:  NVDA at $128. Profit = $8/share × 13 = $104. That's 1.04R.
-        Trail still dormant (need 1.5R = $150).
+        Trail still dormant (need 2.5R = $250).
 
 Day 12: NVDA at $135. Profit = $15/share × 13 = $195. That's 1.95R.
-        Trail activates! EMA(20) = $130, ATR = $4.20.
-        Trail stop = $130 - 1.0 × $4.20 = $125.80.
-        Old stop was $112 → updated to $125.80.
+        Trail still dormant (need 2.5R).
 
-Day 20: NVDA at $148. EMA(20) = $142, ATR = $4.50.
-        New trail = $142 - $4.50 = $137.50.
-        Trail ratchets up from $125.80 → $137.50.
+Day 18: NVDA at $142. Profit = $22/share × 13 = $286. That's 2.86R.
+        Trail activates! EMA(20) = $136, ATR = $4.20.
+        Trail stop = $136 - 1.0 × $4.20 = $131.80.
+        Old stop was $112 → updated to $131.80.
 
-Day 25: NVDA pulls back to $137. Hits trail stop at $137.50.
-        → EXIT at $137.50.
-        P&L = ($137.50 - $120) × 13 = $227.50 (+2.28R).
+Day 25: NVDA at $155. EMA(20) = $148, ATR = $4.50.
+        New trail = $148 - $4.50 = $143.50.
+        Trail ratchets up from $131.80 → $143.50.
+
+Day 30: NVDA pulls back to $143. Hits trail stop at $143.50.
+        → EXIT at $143.50.
+        P&L = ($143.50 - $120) × 13 = $305.50 (+3.06R).
 ```
 
 ---

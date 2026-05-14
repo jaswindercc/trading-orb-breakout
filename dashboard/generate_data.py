@@ -30,7 +30,7 @@ def add_ind(df, fast=10, slow=50, tl=20):
 
 def backtest(df, name):
     RISK = 100.0
-    cfg = dict(mdist=3.0, mbar=3.0, sla=2.0, tb=1.0, tsr=1.5)
+    cfg = dict(mdist=3.0, mbar=2.0, sla=2.0, tb=1.0, tsr=2.5)
     df = add_ind(df)
     trades = []; pos=0; ep=er=tsl=0.0; lcd=0; bsc=999
 
@@ -116,8 +116,8 @@ def backtest(df, name):
 # Run
 all_data = {'stocks': {}, 'allTrades': [], 'settings': {
     'fastSma': 10, 'slowSma': 50, 'slAtrMult': 2.0,
-    'trailEmaLen': 20, 'trailAtrBuf': 1.0, 'trailStartR': 1.5,
-    'riskPerTrade': 100
+    'trailEmaLen': 20, 'trailAtrBuf': 1.0, 'trailStartR': 2.5,
+    'maxBarAtr': 2.0, 'maxDistAtr': 3.0, 'riskPerTrade': 100
 }}
 
 for f in sorted(DATA_DIR.glob("*.csv")):

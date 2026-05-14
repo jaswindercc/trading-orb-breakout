@@ -47,7 +47,7 @@ def add_ind(df, fast=10, slow=50, tl=20):
 
 def backtest_stock(df, stock_name):
     """Backtest with current pine_orb defaults"""
-    cfg = dict(fast=10, slow=50, mdist=3.0, mbar=3.0, sla=2.0, tl=20, tb=1.0, tsr=1.5)
+    cfg = dict(fast=10, slow=50, mdist=3.0, mbar=2.0, sla=2.0, tl=20, tb=1.0, tsr=2.5)
     df = add_ind(df, cfg['fast'], cfg['slow'], cfg['tl'])
     
     trades = []
