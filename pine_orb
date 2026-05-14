@@ -1,13 +1,13 @@
 //@version=5
 // ============================================================
-// WEEKLY ORB v3 - SMA Crossover (Multi-Stock Optimized)
+// WEEKLY ORB v3 - SMA Crossover (Asymmetric Long-Biased)
 // ============================================================
-// Entry: Fast SMA crosses slow SMA + max candle size filter.
-// Stop:  ATR-based (2.0× = wide enough for volatile stocks).
-// Trail: EMA trailing stop, delayed activation at 2.5R.
-// Tested across SPY, AAPL, NVDA, TSLA, META, GOOGL, AMD.
+// LONGS:  SMA crossover entry → EMA trailing stop (ride the trend).
+// SHORTS: SMA crossover entry ONLY below SMA200 → fixed TP at 3R (take profit quick).
+// Stop:   ATR-based (1.0× = tight stop, bigger position, bigger R on winners).
+// Tested across 12 stocks: SPY, AAPL, NVDA, TSLA, META, GOOGL, AMD, etc.
 
-strategy("Weekly ORB v3", overlay=true,
+strategy("Weekly ORB v3 Asym", overlay=true,
      pyramiding=0,
      initial_capital=100000,
      commission_type=strategy.commission.cash_per_order,
@@ -27,10 +27,16 @@ maxDistAtr   = input.float(3.0,   "Max Distance From Fast SMA (×ATR)", minval=0
 maxBarAtr    = input.float(2.0,   "Max Candle Size (×ATR)", minval=0.5, step=0.5, group=grp1,
                   tooltip="Skip entry if today's bar range > this × ATR. Filters out overextended gap/news bars.")
 
+grpS = "Short Filters"
+shortSma200  = input.int(200,     "Short: SMA200 Length", minval=50, maxval=300, group=grpS,
+                  tooltip="Only allow shorts when price is below this SMA. Keeps shorts in confirmed downtrends.")
+shortTpR     = input.float(3.0,   "Short: Take Profit (R)", minval=1.0, step=0.5, group=grpS,
+                  tooltip="Close short at this R-multiple profit. Shorts are quick: bank gains, don't trail.")
+
 grp2 = "Risk Management"
 riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
-slAtrMult    = input.float(2.0,   "Stop Loss (×ATR)",     minval=0.5, step=0.25, group=grp2,
-                  tooltip="Stop distance as ATR multiple. 2.0 = optimal across stocks. Wider stops reduce back-to-back SLs.")
+slAtrMult    = input.float(1.0,   "Stop Loss (×ATR)",     minval=0.5, step=0.25, group=grp2,
+                  tooltip="Stop distance as ATR multiple. 1.0 = tight stop, doubles position size vs 2.0×, winners pay off in much bigger R.")
 trailEmaLen  = input.int(20,      "Trail EMA Length",     minval=3, maxval=50, group=grp2,
                   tooltip="EMA for trailing stop. 20 = rides big moves. 10 = tighter.")
 trailAtrMult = input.float(1.0,   "Trail ATR Buffer",     minval=0, step=0.25, group=grp2,
@@ -56,6 +62,9 @@ atrVal = ta.atr(14)
 // Trail EMA
 trailEma = ta.ema(close, trailEmaLen)
 
+// SMA200 for short filter
+sma200 = ta.sma(close, shortSma200)
+
 // Week detection
 isNewWeek = ta.change(time("W")) != 0
 
@@ -66,6 +75,7 @@ var float entryRisk   = na
 var int   entryDir    = 0   // 1 = long, -1 = short, 0 = flat
 var float trailSL     = na
 var int   lastCrossDir = 0  // 1 = last cross was bullish, -1 = bearish. Prevents same-direction re-entry.
+var float lastExitR   = na  // display only: R-multiple at last trade exit
 
 // =================== ENTRY CONDITIONS =================== //
 // Long:  fast SMA crosses above slow SMA (only if last cross was not already bullish)
@@ -83,7 +93,7 @@ smallBar  = (high - low) <= maxBarAtr * atrVal
 canEnter  = inWindow and flat and notTooFar and smallBar
 
 longOK  = lastCrossDir == 1 and lastCrossDir[1] != 1
-shortOK = lastCrossDir == -1 and lastCrossDir[1] != -1
+shortOK = lastCrossDir == -1 and lastCrossDir[1] != -1 and close < sma200
 
 // =================== ENTRY EXECUTION =================== //
 
@@ -109,30 +119,32 @@ else if canEnter and shortOK
     entryDir   := -1
     trailSL    := sl
 
-// =================== TRAILING STOP =================== //
-// Once profit >= trailStartR, trail with EMA(20) - buffer.
-// No fixed TP. Ride until the EMA trail gets hit.
+// =================== TRAILING / TP MANAGEMENT =================== //
+// LONGS:  EMA trailing stop (ride the trend — no fixed TP).
+// SHORTS: Fixed TP at shortTpR × risk (take profit quick, don't trail).
 
 if strategy.position_size != 0 and not na(entryPrice) and not na(entryRisk) and entryDir != 0
     float currPnl = entryDir == 1 ? (close - entryPrice) : (entryPrice - close)
     float currR   = entryRisk > 0 ? currPnl / entryRisk : 0.0
 
     if entryDir == 1
+        // Long: EMA trailing stop, activates at trailStartR
         if currR >= trailStartR
             float emaTrail = trailEma - trailAtrMult * atrVal
             if not na(emaTrail) and emaTrail > trailSL
                 trailSL := emaTrail
         strategy.exit("XL", "Long", stop=trailSL)
     else
-        if currR >= trailStartR
-            float emaTrail = trailEma + trailAtrMult * atrVal
-            if not na(emaTrail) and emaTrail < trailSL
-                trailSL := emaTrail
-        strategy.exit("XS", "Short", stop=trailSL)
+        // Short: fixed TP at shortTpR, stop loss only (no trailing)
+        float tpPrice = entryPrice - shortTpR * entryRisk
+        strategy.exit("XS", "Short", stop=trailSL, limit=tpPrice)
 
 // =================== RESET ON CLOSE =================== //
 
 if strategy.position_size == 0 and strategy.position_size[1] != 0
+    // capture R for exit label (display only)
+    if not na(entryRisk) and entryRisk > 0 and not na(entryPrice) and not na(trailSL)
+        lastExitR := entryDir == 1 ? (trailSL - entryPrice) / entryRisk : (entryPrice - trailSL) / entryRisk
     entryDir   := 0
     entryPrice := na
     entryRisk  := na
@@ -140,16 +152,51 @@ if strategy.position_size == 0 and strategy.position_size[1] != 0
 
 // ======================== PLOTTING ======================== //
 
-plot(fastSma, "Fast SMA", color=color.blue, linewidth=2)
-plot(slowSma, "Slow SMA", color=color.red, linewidth=2)
-plot(trailEma, "Trail EMA", color=color.new(color.orange, 60), linewidth=1)
+// ── Trade state detection (display only) ──
+bool inLong   = strategy.position_size > 0
+bool inShort  = strategy.position_size < 0
+bool inTrade  = inLong or inShort
+bool gotLong  = entryDir == 1  and entryDir[1]  != 1
+bool gotShort = entryDir == -1 and entryDir[1]  != -1
+bool justOut  = strategy.position_size == 0 and strategy.position_size[1] != 0
 
-// Info table
-var tbl = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 80))
+// ── SMAs ──
+plot(fastSma, "Fast SMA", color=color.new(color.blue, 20), linewidth=2)
+plot(slowSma, "Slow SMA", color=color.new(color.red, 20), linewidth=2)
+plot(trailEma, "Trail EMA", color=color.new(color.orange, 75), linewidth=1)
+
+// ── Entry price + stop level with risk-zone fill ──
+pEntry = plot(inTrade ? entryPrice : na, "Entry Price", color=color.new(#ffffff, 30), style=plot.style_linebr, linewidth=1)
+pStop  = plot(inTrade ? trailSL    : na, "Stop Level",  color=color.new(#00e5ff, 0),   style=plot.style_linebr, linewidth=2)
+fill(pEntry, pStop, color=color.new(#ffab40, 85), title="Risk Zone")
+
+// ── Background tint while in a position ──
+bgcolor(inLong ? color.new(#00e676, 88) : inShort ? color.new(#ff5252, 88) : na, title="Position BG")
+
+// ── Entry arrows ──
+plotshape(gotLong,  "▲ Long Entry",  shape.triangleup,   location.belowbar, color.new(#00e676, 0), size=size.small)
+plotshape(gotShort, "▼ Short Entry", shape.triangledown,  location.abovebar, color.new(#ff5252, 0), size=size.small)
+
+// ── R-multiple label at exit ──
+if justOut and not na(lastExitR)
+    color  clr = lastExitR >= 0 ? #00e676 : #ff5252
+    string txt = (lastExitR >= 0 ? "+" : "") + str.tostring(lastExitR, "0.0") + "R"
+    label.new(bar_index, lastExitR >= 0 ? high : low, txt,
+              color=color.new(clr, 60), textcolor=clr,
+              style=lastExitR >= 0 ? label.style_label_down : label.style_label_up,
+              size=size.small)
+
+// ── SMA200 line ──
+plot(sma200, "SMA 200", color=color.new(#ff9800, 40), linewidth=1, style=plot.style_line)
+
+// ── Info table ──
+var tbl = table.new(position.top_right, 2, 4, bgcolor=color.new(color.black, 80))
 if barstate.islast
-    table.cell(tbl, 0, 0, "R:R",           bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 0, str.tostring(trailStartR, "#.#") + "R trail", bgcolor=#555555, text_color=color.yellow)
-    table.cell(tbl, 0, 1, "SMAs",          bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 1, str.tostring(fastLen) + " / " + str.tostring(slowLen), bgcolor=#555555, text_color=color.blue)
-    table.cell(tbl, 0, 2, "Stop (ATR×)",   bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 2, str.tostring(slAtrMult, "#.##"), bgcolor=#555555, text_color=color.yellow)
+    table.cell(tbl, 0, 0, "Long Exit",   bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 0, str.tostring(trailStartR, "#.#") + "R trail EMA" + str.tostring(trailEmaLen), bgcolor=#555555, text_color=#00e676)
+    table.cell(tbl, 0, 1, "Short Exit",  bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 1, str.tostring(shortTpR, "#.#") + "R fixed TP (below SMA200)", bgcolor=#555555, text_color=#ff5252)
+    table.cell(tbl, 0, 2, "SMAs",        bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 2, str.tostring(fastLen) + " / " + str.tostring(slowLen), bgcolor=#555555, text_color=color.blue)
+    table.cell(tbl, 0, 3, "Stop (ATR×)", bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 3, str.tostring(slAtrMult, "#.##"), bgcolor=#555555, text_color=color.yellow)

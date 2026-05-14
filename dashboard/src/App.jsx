@@ -3,7 +3,7 @@ import { Routes, Route, NavLink } from 'react-router-dom'
 import Overview from './pages/Overview'
 import StockPage from './pages/StockPage'
 
-const STOCKS = ['SPY', 'AAPL', 'AMD', 'GOOGL', 'META', 'NVDA', 'TSLA']
+const STOCKS = ['SPY','AAPL','ADBE','AMD','BA','CRM','GOOGL','META','MSFT','NVDA','SNOW','TSLA']
 
 export default function App() {
   const [data, setData] = useState(null)
@@ -14,12 +14,12 @@ export default function App() {
       .then(setData)
   }, [])
 
-  if (!data) return <div className="loading">Loading backtest data…</div>
+  if (!data) return <div className="loading">Loading…</div>
 
   return (
     <div className="app">
       <nav className="sidebar">
-        <h2>Dashboard</h2>
+        <h2>ORB v3 Asym</h2>
         <NavLink to="/" end className={({isActive}) => isActive ? 'active' : ''}>
           Overview
         </NavLink>

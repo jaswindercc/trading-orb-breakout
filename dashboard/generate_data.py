@@ -14,10 +14,11 @@ def load(fp):
         df[c] = pd.to_numeric(df[c], errors='coerce')
     return df.dropna(subset=['Open','High','Low','Close'])
 
-def add_ind(df, fast=10, slow=50, tl=20):
+def add_ind(df, fast=10, slow=50, tl=20, sma200_len=200):
     df = df.copy()
     df['fSma'] = df['Close'].rolling(fast).mean()
     df['sSma'] = df['Close'].rolling(slow).mean()
+    df['sma200'] = df['Close'].rolling(sma200_len).mean()
     df['tr'] = np.maximum(df['High']-df['Low'],
         np.maximum(abs(df['High']-df['Close'].shift(1)), abs(df['Low']-df['Close'].shift(1))))
     df['atr'] = df['tr'].rolling(14).mean()
@@ -30,7 +31,7 @@ def add_ind(df, fast=10, slow=50, tl=20):
 
 def backtest(df, name):
     RISK = 100.0
-    cfg = dict(mdist=3.0, mbar=2.0, sla=2.0, tb=1.0, tsr=2.5)
+    cfg = dict(mdist=3.0, mbar=2.0, sla=1.0, tb=1.0, tsr=2.5, short_tp_r=3.0)
     df = add_ind(df)
     trades = []; pos=0; ep=er=tsl=0.0; lcd=0; bsc=999
 
@@ -42,21 +43,23 @@ def backtest(df, name):
         else: bsc+=1
 
         if pos!=0:
-            hsl=False; xp=0.0
+            hsl=False; xp=0.0; reason=''
             if pos==1:
-                if r['Low']<=tsl: xp=tsl; hsl=True
+                # LONG: trailing stop (same as before)
+                if r['Low']<=tsl: xp=tsl; hsl=True; reason='SL'
                 if not hsl:
                     cr=(r['Close']-ep)/er if er>0 else 0
                     if cr>=cfg['tsr']:
                         et=r['tEma']-cfg['tb']*atr
                         if et>tsl: tsl=et
+                    if r['Low']<=tsl: xp=tsl; hsl=True; reason='Trail'
             else:
-                if r['High']>=tsl: xp=tsl; hsl=True
-                if not hsl:
-                    cr=(ep-r['Close'])/er if er>0 else 0
-                    if cr>=cfg['tsr']:
-                        et=r['tEma']+cfg['tb']*atr
-                        if et<tsl: tsl=et
+                # SHORT: fixed TP at short_tp_r, stop loss only (no trailing)
+                tp_price = ep - cfg['short_tp_r'] * er
+                if r['High']>=tsl:
+                    xp=tsl; hsl=True; reason='SL'
+                elif r['Low']<=tp_price:
+                    xp=tp_price; hsl=True; reason='TP'
             if hsl:
                 t=trades[-1]
                 t['exitDate']=r['Date'].strftime('%Y-%m-%d')
@@ -64,8 +67,7 @@ def backtest(df, name):
                 pnl_r=((xp-ep)/er if pos==1 else (ep-xp)/er) if er>0 else 0
                 t['pnlR']=round(pnl_r,2)
                 t['pnlDollar']=round(pnl_r*RISK,2)
-                t['exitReason']='SL' if pnl_r<=0 else 'Trail'
-                # Duration
+                t['exitReason']=reason if reason else ('SL' if pnl_r<=0 else 'Trail')
                 ed=pd.to_datetime(t['entryDate']); xd=r['Date']
                 t['durationDays']=int((xd-ed).days)
                 pos=0
@@ -74,6 +76,8 @@ def backtest(df, name):
             xl=(lcd==1 and bsc==0); xs=(lcd==-1 and bsc==0)
             dok=abs(r['Close']-r['fSma'])<=cfg['mdist']*atr
             bok=r['bRng']<=cfg['mbar']*atr
+            # SHORT: must also be below SMA200
+            sma200_ok = not pd.isna(r['sma200']) and r['Close'] < r['sma200']
             if dok and bok and xl:
                 sl=r['Close']-cfg['sla']*atr; rk=r['Close']-sl
                 qty=max(1,round(RISK/rk)) if rk>0 else 1
@@ -82,7 +86,7 @@ def backtest(df, name):
                     'entryPrice':round(r['Close'],2),'sl':round(sl,2),'risk':round(rk,2),
                     'qty':qty,'exitDate':'','exitPrice':0,'pnlR':0,'pnlDollar':0,
                     'exitReason':'','durationDays':0})
-            elif dok and bok and xs:
+            elif dok and bok and xs and sma200_ok:
                 sl=r['Close']+cfg['sla']*atr; rk=sl-r['Close']
                 qty=max(1,round(RISK/rk)) if rk>0 else 1
                 pos=-1; ep=r['Close']; er=rk; tsl=sl
@@ -115,9 +119,11 @@ def backtest(df, name):
 
 # Run
 all_data = {'stocks': {}, 'allTrades': [], 'settings': {
-    'fastSma': 10, 'slowSma': 50, 'slAtrMult': 2.0,
+    'fastSma': 10, 'slowSma': 50, 'slAtrMult': 1.0,
     'trailEmaLen': 20, 'trailAtrBuf': 1.0, 'trailStartR': 2.5,
-    'maxBarAtr': 2.0, 'maxDistAtr': 3.0, 'riskPerTrade': 100
+    'maxBarAtr': 2.0, 'maxDistAtr': 3.0, 'riskPerTrade': 100,
+    'shortSma200': 200, 'shortTpR': 3.0,
+    'strategy': 'Asymmetric Long-Biased'
 }}
 
 for f in sorted(DATA_DIR.glob("*.csv")):

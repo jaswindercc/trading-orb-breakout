@@ -44,9 +44,9 @@ Same rules, but SMA(10) crosses **below** SMA(50).
 ## Position Sizing (How Much to Buy)
 
 - You risk exactly **$100 per trade**.
-- Stop distance = **2.0 × ATR(14)** from entry price.
+- Stop distance = **1.0 × ATR(14)** from entry price.
 - Quantity = `$100 ÷ stop distance`, rounded to nearest share (minimum 1).
-- Example: Stock at $150, ATR = $5, stop distance = $10 → qty = 10 shares.
+- Example: Stock at $150, ATR = $5, stop distance = $5 → qty = 20 shares.
 
 ---
 
@@ -54,12 +54,12 @@ Same rules, but SMA(10) crosses **below** SMA(50).
 
 | Direction | Stop Placement |
 |-----------|---------------|
-| Long | Entry price **minus** 2.0 × ATR |
-| Short | Entry price **plus** 2.0 × ATR |
+| Long | Entry price **minus** 1.0 × ATR |
+| Short | Entry price **plus** 1.0 × ATR |
 
 - The stop is set **immediately** on entry. It does not move until the trailing logic kicks in.
 - If the stop is hit before trailing activates, you lose exactly **$100** (1R).
-- A wider 2.0×ATR stop (vs. 1.5) reduces whipsaws on volatile stocks like TSLA and NVDA.
+- A tight 1.0×ATR stop means more shares per trade (same $100 risk ÷ smaller stop = bigger position). Winners pay off in much larger R multiples. Win rate drops (~29%) but P&L nearly doubles vs 2.0×.
 
 ---
 
@@ -94,7 +94,7 @@ The strategy has **no fixed take profit**. Winners ride until the trailing stop 
 
 | Scenario | What Happens | Typical P&L |
 |----------|-------------|-------------|
-| Stop hit before 2.5R | Hard stop at entry ± 2.0×ATR | −$100 (−1R) |
+| Stop hit before 2.5R | Hard stop at entry ± 1.0×ATR | −$100 (−1R) |
 | Trail activates, then hit | EMA(20) ± 1.0×ATR trail stop | Varies, often +$200 to +$2000+ |
 | No fixed TP | Winners run as long as the trend holds | Unlimited upside |
 
@@ -110,7 +110,7 @@ The strategy has **no fixed take profit**. Winners ride until the trailing stop 
 | Max Distance (×ATR) | 3.0 | Don't enter if price is too far from fast SMA |
 | Max Candle (×ATR) | 2.0 | Skip overextended gap/news bars |
 | Risk Per Trade | $100 | Fixed dollar risk per trade |
-| Stop Loss (×ATR) | 2.0 | Initial stop distance from entry |
+| Stop Loss (×ATR) | 1.0 | Initial stop distance from entry |
 | Trail EMA Length | 20 | EMA used for trailing stop |
 | Trail ATR Buffer | 1.0 | Cushion below/above trail EMA |
 | Trail Starts At | 2.5R | Minimum profit before trail activates |
@@ -126,27 +126,24 @@ Day 1:  NVDA at $120. SMA(10) = $118, SMA(50) = $117.
         Distance from fast SMA: |$120 - $118| = $2 < 3.0 × $4 = $12 ✓
         Bar range: $5.20 < 2.0 × $4 = $8 ✓ (not overextended)
         → ENTER LONG at $120.
-        Stop = $120 - 2.0 × $4 = $112.
-        Risk = $8/share. Qty = $100 / $8 = 13 shares.
+        Stop = $120 - 1.0 × $4 = $116.
+        Risk = $4/share. Qty = $100 / $4 = 25 shares.
 
-Day 5:  NVDA at $128. Profit = $8/share × 13 = $104. That's 1.04R.
+Day 5:  NVDA at $128. Profit = $8/share × 25 = $200. That's 2.0R.
         Trail still dormant (need 2.5R = $250).
 
-Day 12: NVDA at $135. Profit = $15/share × 13 = $195. That's 1.95R.
-        Trail still dormant (need 2.5R).
-
-Day 18: NVDA at $142. Profit = $22/share × 13 = $286. That's 2.86R.
-        Trail activates! EMA(20) = $136, ATR = $4.20.
-        Trail stop = $136 - 1.0 × $4.20 = $131.80.
-        Old stop was $112 → updated to $131.80.
+Day 12: NVDA at $135. Profit = $15/share × 25 = $375. That's 3.75R.
+        Trail activates! EMA(20) = $130, ATR = $4.20.
+        Trail stop = $130 - 1.0 × $4.20 = $125.80.
+        Old stop was $116 → updated to $125.80.
 
 Day 25: NVDA at $155. EMA(20) = $148, ATR = $4.50.
         New trail = $148 - $4.50 = $143.50.
-        Trail ratchets up from $131.80 → $143.50.
+        Trail ratchets up from $125.80 → $143.50.
 
 Day 30: NVDA pulls back to $143. Hits trail stop at $143.50.
         → EXIT at $143.50.
-        P&L = ($143.50 - $120) × 13 = $305.50 (+3.06R).
+        P&L = ($143.50 - $120) × 25 = $587.50 (+5.88R).
 ```
 
 ---
@@ -155,11 +152,11 @@ Day 30: NVDA pulls back to $143. Hits trail stop at $143.50.
 
 ```
 Day 1:  AMD at $160. SMA(10) crosses above SMA(50). ATR = $6.
-        → ENTER LONG at $160. Stop = $160 - 2×$6 = $148. Qty = $100/$12 = 8 shares.
+        → ENTER LONG at $160. Stop = $160 - 1×$6 = $154. Qty = $100/$6 = 17 shares.
 
-Day 3:  AMD drops to $147. Stop at $148 is hit.
-        → EXIT at $148.
-        P&L = ($148 - $160) × 8 = -$96 (≈ −1R).
+Day 3:  AMD drops to $153. Stop at $154 is hit.
+        → EXIT at $154.
+        P&L = ($154 - $160) × 17 = -$102 (≈ −1R).
         Trail never activated. Clean loss.
 ```
 
