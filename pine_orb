@@ -1,11 +1,11 @@
 //@version=5
 // ============================================================
-// WEEKLY ORB v3 - SMA Crossover + Big Candle Filter
+// WEEKLY ORB v3 - SMA Crossover (Multi-Stock Optimized)
 // ============================================================
-// Entry: Fast SMA crosses slow SMA + candle not oversized.
-// Stop:  ATR-based (adaptive).
-// Trail: Pure EMA trailing stop, no fixed TP.
-// Big candle filter: skips entry after outsized bars to avoid drawdowns.
+// Entry: Fast SMA crosses slow SMA + candle size filter.
+// Stop:  ATR-based (2.0× = wide enough for volatile stocks).
+// Trail: EMA trailing stop, delayed activation at 1.5R.
+// Tested across SPY, AAPL, NVDA, TSLA, META, GOOGL, AMD.
 
 strategy("Weekly ORB v3", overlay=true,
      pyramiding=0,
@@ -22,21 +22,21 @@ fastLen      = input.int(10,      "Fast SMA Length",       minval=3, maxval=50, 
                   tooltip="Short-term moving average. Crosses above slow = long, below = short.")
 slowLen      = input.int(50,      "Slow SMA Length",       minval=20, maxval=200, group=grp1,
                   tooltip="Long-term moving average. Defines the trend direction.")
-maxDistAtr   = input.float(1.5,   "Max Distance From Fast SMA (×ATR)", minval=0.5, step=0.5, group=grp1,
-                  tooltip="Skip entry if price is further than this many ATRs from fast SMA. Prevents chasing.")
-maxBarAtr    = input.float(2.0,   "Max Candle Size (×ATR)", minval=1.0, step=0.5, group=grp1,
-                  tooltip="Skip entry if today's bar range > this × ATR. Avoids chasing after big moves that often reverse.")
+maxDistAtr   = input.float(3.0,   "Max Distance From Fast SMA (×ATR)", minval=0.5, step=0.5, group=grp1,
+                  tooltip="Skip entry if price is further than this many ATRs from fast SMA. 3.0 works across most stocks.")
+maxBarAtr    = input.float(3.0,   "Max Candle Size (×ATR)", minval=1.0, step=0.5, group=grp1,
+                  tooltip="Skip entry if today's bar range > this × ATR. 3.0 balances filtering vs opportunity.")
 
 grp2 = "Risk Management"
 riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
-slAtrMult    = input.float(1.5,   "Stop Loss (×ATR)",     minval=0.5, step=0.25, group=grp2,
-                  tooltip="Stop distance as ATR multiple. 1.5 = balanced. 1.0 = tight. 2.0 = wide.")
+slAtrMult    = input.float(2.0,   "Stop Loss (×ATR)",     minval=0.5, step=0.25, group=grp2,
+                  tooltip="Stop distance as ATR multiple. 2.0 = optimal across stocks. Wider stops reduce back-to-back SLs.")
 trailEmaLen  = input.int(20,      "Trail EMA Length",     minval=3, maxval=50, group=grp2,
                   tooltip="EMA for trailing stop. 20 = rides big moves. 10 = tighter.")
-trailAtrMult = input.float(0.5,   "Trail ATR Buffer",     minval=0, step=0.25, group=grp2,
-                  tooltip="Buffer below/above trail EMA. Cushion against wicks.")
-trailStartR  = input.float(1.0,   "Trail Starts At (R)",  minval=0.5, step=0.5, group=grp2,
-                  tooltip="Trailing stop activates once profit reaches this R. Below this, only fixed stop.")
+trailAtrMult = input.float(1.0,   "Trail ATR Buffer",     minval=0, step=0.25, group=grp2,
+                  tooltip="Buffer below/above trail EMA. 1.0 = handles volatile stocks (TSLA, NVDA). 0.5 = tighter.")
+trailStartR  = input.float(1.5,   "Trail Starts At (R)",  minval=0.5, step=0.5, group=grp2,
+                  tooltip="Trailing activates at this R profit. 1.5 = lets momentum build before protecting.")
 
 grp3 = "Backtest Dates"
 startDate = input.time(timestamp("2024-01-01"), "Start Date", group=grp3)
