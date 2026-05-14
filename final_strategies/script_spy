@@ -1,0 +1,164 @@
+//@version=5
+// ============================================================
+// WEEKLY ORB v3 - SMA Crossover
+// ============================================================
+// Entry: Fast SMA crosses slow SMA.
+// Stop:  ATR-based (adaptive).
+// Trail: Pure EMA trailing stop, no fixed TP.
+// One trade at a time. No other restrictions.
+
+strategy("Weekly ORB v3", overlay=true,
+     pyramiding=0,
+     initial_capital=100000,
+     commission_type=strategy.commission.cash_per_order,
+     commission_value=0,
+     slippage=0,
+     process_orders_on_close=true)
+
+// ======================== INPUTS ======================== //
+
+grp1 = "Entry"
+fastLen      = input.int(10,      "Fast SMA Length",       minval=3, maxval=50, group=grp1,
+                  tooltip="Short-term moving average. Crosses above slow = long, below = short.")
+slowLen      = input.int(50,      "Slow SMA Length",       minval=20, maxval=200, group=grp1,
+                  tooltip="Long-term moving average. Defines the trend direction.")
+maxDistAtr   = input.float(1.5,   "Max Distance From Fast SMA (×ATR)", minval=0.5, step=0.5, group=grp1,
+                  tooltip="Skip entry if price is further than this many ATRs from fast SMA. Prevents chasing.")
+cooloffWeeks = input.int(1,       "Cooloff Weeks After Loss", minval=0, maxval=3, group=grp1,
+                  tooltip="Skip this many weeks after a stop loss. Reduces consecutive losses.")
+
+grp2 = "Risk Management"
+riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
+slAtrMult    = input.float(1.5,   "Stop Loss (×ATR)",     minval=0.5, step=0.25, group=grp2,
+                  tooltip="Stop distance as ATR multiple. 1.5 = balanced. 1.0 = tight. 2.0 = wide.")
+trailEmaLen  = input.int(20,      "Trail EMA Length",     minval=3, maxval=50, group=grp2,
+                  tooltip="EMA for trailing stop. 20 = rides big moves. 10 = tighter.")
+trailAtrMult = input.float(0.5,   "Trail ATR Buffer",     minval=0, step=0.25, group=grp2,
+                  tooltip="Buffer below/above trail EMA. Cushion against wicks.")
+trailStartR  = input.float(1.0,   "Trail Starts At (R)",  minval=0.5, step=0.5, group=grp2,
+                  tooltip="Trailing stop activates once profit reaches this R. Below this, only fixed stop.")
+
+grp3 = "Backtest Dates"
+startDate = input.time(timestamp("2024-01-01"), "Start Date", group=grp3)
+endDate   = input.time(timestamp("2026-12-31"), "End Date",   group=grp3)
+
+inWindow = time >= startDate and time <= endDate
+
+// =================== INDICATORS =================== //
+
+// Entry SMAs
+fastSma = ta.sma(close, fastLen)
+slowSma = ta.sma(close, slowLen)
+
+// ATR for stop loss and trailing
+atrVal = ta.atr(14)
+
+// Trail EMA
+trailEma = ta.ema(close, trailEmaLen)
+
+// Week detection
+isNewWeek = ta.change(time("W")) != 0
+
+// =================== STATE VARIABLES =================== //
+
+var float entryPrice  = na
+var float entryRisk   = na
+var int   entryDir    = 0   // 1 = long, -1 = short, 0 = flat
+var float trailSL     = na
+var int   cooloffLeft = 0
+var int   lastCrossDir = 0  // 1 = last cross was bullish, -1 = bearish. Prevents same-direction re-entry.
+
+// =========== WEEKLY COOLOFF COUNTDOWN =========== //
+
+if isNewWeek and cooloffLeft > 0
+    cooloffLeft -= 1
+
+// =================== ENTRY CONDITIONS =================== //
+// Long:  fast SMA crosses above slow SMA (only if last cross was not already bullish)
+// Short: fast SMA crosses below slow SMA (only if last cross was not already bearish)
+
+// Track every crossover, even if we don't enter
+if ta.crossover(fastSma, slowSma)
+    lastCrossDir := 1
+if ta.crossunder(fastSma, slowSma)
+    lastCrossDir := -1
+
+flat      = strategy.position_size == 0
+inCooloff = cooloffLeft > 0
+notTooFar = math.abs(close - fastSma) <= maxDistAtr * atrVal
+canEnter  = inWindow and flat and not inCooloff and notTooFar
+
+longOK  = lastCrossDir == 1 and lastCrossDir[1] != 1
+shortOK = lastCrossDir == -1 and lastCrossDir[1] != -1
+
+// =================== ENTRY EXECUTION =================== //
+
+if canEnter and longOK
+    sl      = close - slAtrMult * atrVal
+    riskAmt = close - sl
+    qty     = riskAmt > 0 ? math.max(1, math.round(riskPerTrade / riskAmt)) : 1
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("XL", "Long", stop=sl)
+    entryPrice := close
+    entryRisk  := riskAmt
+    entryDir   := 1
+    trailSL    := sl
+
+else if canEnter and shortOK
+    sl      = close + slAtrMult * atrVal
+    riskAmt = sl - close
+    qty     = riskAmt > 0 ? math.max(1, math.round(riskPerTrade / riskAmt)) : 1
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("XS", "Short", stop=sl)
+    entryPrice := close
+    entryRisk  := riskAmt
+    entryDir   := -1
+    trailSL    := sl
+
+// =================== TRAILING STOP =================== //
+// Once profit >= trailStartR, trail with EMA(20) - buffer.
+// No fixed TP. Ride until the EMA trail gets hit.
+
+if strategy.position_size != 0 and not na(entryPrice) and not na(entryRisk) and entryDir != 0
+    float currPnl = entryDir == 1 ? (close - entryPrice) : (entryPrice - close)
+    float currR   = entryRisk > 0 ? currPnl / entryRisk : 0.0
+
+    if entryDir == 1
+        if currR >= trailStartR
+            float emaTrail = trailEma - trailAtrMult * atrVal
+            if not na(emaTrail) and emaTrail > trailSL
+                trailSL := emaTrail
+        strategy.exit("XL", "Long", stop=trailSL)
+    else
+        if currR >= trailStartR
+            float emaTrail = trailEma + trailAtrMult * atrVal
+            if not na(emaTrail) and emaTrail < trailSL
+                trailSL := emaTrail
+        strategy.exit("XS", "Short", stop=trailSL)
+
+// =================== RESET ON CLOSE =================== //
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    float closePnl = entryDir == 1 ? (close[1] - entryPrice) : (entryPrice - close[1])
+    if closePnl <= 0
+        cooloffLeft := cooloffWeeks
+    entryDir   := 0
+    entryPrice := na
+    entryRisk  := na
+    trailSL    := na
+
+// ======================== PLOTTING ======================== //
+
+plot(fastSma, "Fast SMA", color=color.blue, linewidth=2)
+plot(slowSma, "Slow SMA", color=color.red, linewidth=2)
+plot(trailEma, "Trail EMA", color=color.new(color.orange, 60), linewidth=1)
+
+// Info table
+var tbl = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(tbl, 0, 0, "R:R",           bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 0, str.tostring(trailStartR, "#.#") + "R trail", bgcolor=#555555, text_color=color.yellow)
+    table.cell(tbl, 0, 1, "SMAs",          bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 1, str.tostring(fastLen) + " / " + str.tostring(slowLen), bgcolor=#555555, text_color=color.blue)
+    table.cell(tbl, 0, 2, "Stop (ATR×)",   bgcolor=#555555, text_color=color.white)
+    table.cell(tbl, 1, 2, str.tostring(slAtrMult, "#.##"), bgcolor=#555555, text_color=color.yellow)
