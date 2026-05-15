@@ -1,9 +1,9 @@
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Brush } from 'recharts'
 
 export default function DrawdownChart({ data }) {
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <AreaChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+      <AreaChart data={data} margin={{ top: 5, right: 20, bottom: 30, left: 10 }}>
         <defs>
           <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="#ff1744" stopOpacity={0.4} />
@@ -18,7 +18,8 @@ export default function DrawdownChart({ data }) {
           formatter={(v, name) => [`$${v.toFixed(0)}`, name === 'drawdown' ? 'Drawdown' : 'DD%']}
           labelStyle={{ color: '#8e8e9a' }}
         />
-        <Area type="monotone" dataKey="drawdown" stroke="#ff1744" fill="url(#ddGrad)" strokeWidth={2} dot={false} />
+        <Area type="monotone" dataKey="drawdown" stroke="#ff1744" fill="url(#ddGrad)" strokeWidth={2} dot={false} isAnimationActive={false} />
+        <Brush dataKey="date" height={25} stroke="#ff1744" fill="#1a1d28" tickFormatter={d => d?.slice(2, 7) || ''} />
       </AreaChart>
     </ResponsiveContainer>
   )

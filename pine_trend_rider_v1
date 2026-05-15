@@ -1,13 +1,13 @@
 //@version=5
 // ============================================================
-// WEEKLY ORB v3 - SMA Crossover (Asymmetric Long-Biased)
+// TREND RIDER v1 - SMA Crossover (Asymmetric Long-Biased)
 // ============================================================
 // LONGS:  SMA crossover entry → EMA trailing stop (ride the trend).
-// SHORTS: SMA crossover entry ONLY below SMA200 → fixed TP at 3R (take profit quick).
+// SHORTS: SMA crossover entry ONLY below SMA200 + ATR contracting → fixed TP at 3R (take profit quick).
 // Stop:   ATR-based (1.0× = tight stop, bigger position, bigger R on winners).
 // Tested across 12 stocks: SPY, AAPL, NVDA, TSLA, META, GOOGL, AMD, etc.
 
-strategy("Weekly ORB v3 Asym", overlay=true,
+strategy("Trend Rider v1", overlay=true,
      pyramiding=0,
      initial_capital=100000,
      commission_type=strategy.commission.cash_per_order,
@@ -32,6 +32,8 @@ shortSma200  = input.int(200,     "Short: SMA200 Length", minval=50, maxval=300,
                   tooltip="Only allow shorts when price is below this SMA. Keeps shorts in confirmed downtrends.")
 shortTpR     = input.float(3.0,   "Short: Take Profit (R)", minval=1.0, step=0.5, group=grpS,
                   tooltip="Close short at this R-multiple profit. Shorts are quick: bank gains, don't trail.")
+shortAtrSma  = input.int(20,      "Short: ATR Contraction SMA", minval=5, maxval=50, group=grpS,
+                  tooltip="Only short when ATR < SMA of ATR (volatility contracting). Filters out bounce-back shorts.")
 
 grp2 = "Risk Management"
 riskPerTrade = input.float(100,   "Risk $ Per Trade",     minval=1,             group=grp2)
@@ -65,6 +67,10 @@ trailEma = ta.ema(close, trailEmaLen)
 // SMA200 for short filter
 sma200 = ta.sma(close, shortSma200)
 
+// ATR contraction filter for shorts
+atrSma = ta.sma(atrVal, shortAtrSma)
+atrContracting = atrVal < atrSma
+
 // Week detection
 isNewWeek = ta.change(time("W")) != 0
 
@@ -93,7 +99,7 @@ smallBar  = (high - low) <= maxBarAtr * atrVal
 canEnter  = inWindow and flat and notTooFar and smallBar
 
 longOK  = lastCrossDir == 1 and lastCrossDir[1] != 1
-shortOK = lastCrossDir == -1 and lastCrossDir[1] != -1 and close < sma200
+shortOK = lastCrossDir == -1 and lastCrossDir[1] != -1 and close < sma200 and atrContracting
 
 // =================== ENTRY EXECUTION =================== //
 
@@ -195,7 +201,7 @@ if barstate.islast
     table.cell(tbl, 0, 0, "Long Exit",   bgcolor=#555555, text_color=color.white)
     table.cell(tbl, 1, 0, str.tostring(trailStartR, "#.#") + "R trail EMA" + str.tostring(trailEmaLen), bgcolor=#555555, text_color=#00e676)
     table.cell(tbl, 0, 1, "Short Exit",  bgcolor=#555555, text_color=color.white)
-    table.cell(tbl, 1, 1, str.tostring(shortTpR, "#.#") + "R fixed TP (below SMA200)", bgcolor=#555555, text_color=#ff5252)
+    table.cell(tbl, 1, 1, str.tostring(shortTpR, "#.#") + "R TP (SMA200 + ATR↓)", bgcolor=#555555, text_color=#ff5252)
     table.cell(tbl, 0, 2, "SMAs",        bgcolor=#555555, text_color=color.white)
     table.cell(tbl, 1, 2, str.tostring(fastLen) + " / " + str.tostring(slowLen), bgcolor=#555555, text_color=color.blue)
     table.cell(tbl, 0, 3, "Stop (ATR×)", bgcolor=#555555, text_color=color.white)

@@ -1,9 +1,9 @@
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Brush } from 'recharts'
 
 export default function EquityChart({ data }) {
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <AreaChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+    <ResponsiveContainer width="100%" height={350}>
+      <AreaChart data={data} margin={{ top: 5, right: 20, bottom: 30, left: 10 }}>
         <defs>
           <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="#448aff" stopOpacity={0.3} />
@@ -19,7 +19,8 @@ export default function EquityChart({ data }) {
           labelStyle={{ color: '#8e8e9a' }}
         />
         <ReferenceLine y={0} stroke="#555" strokeDasharray="3 3" />
-        <Area type="monotone" dataKey="equity" stroke="#448aff" fill="url(#eqGrad)" strokeWidth={2} dot={false} />
+        <Area type="monotone" dataKey="equity" stroke="#448aff" fill="url(#eqGrad)" strokeWidth={2} dot={false} isAnimationActive={false} />
+        <Brush dataKey="date" height={25} stroke="#448aff" fill="#1a1d28" tickFormatter={d => d?.slice(2, 7) || ''} />
       </AreaChart>
     </ResponsiveContainer>
   )

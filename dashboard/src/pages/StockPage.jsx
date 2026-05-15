@@ -4,6 +4,7 @@ import KpiCard from '../components/KpiCard'
 import EquityChart from '../components/EquityChart'
 import DrawdownChart from '../components/DrawdownChart'
 import PriceChart from '../components/PriceChart'
+import QuarterlyTable from '../components/QuarterlyTable'
 import TradeTable from '../components/TradeTable'
 
 export default function StockPage({ data }) {
@@ -12,14 +13,18 @@ export default function StockPage({ data }) {
   if (!stock) return <div className="loading">Stock "{symbol}" not found</div>
 
   const trades = stock.trades.filter(t => t.exitDate)
+  const longTrades = trades.filter(t => t.dir === 'LONG')
+  const shortTrades = trades.filter(t => t.dir === 'SHORT')
   const metrics = computeMetrics(trades)
+  const longMetrics = computeMetrics(longTrades)
+  const shortMetrics = computeMetrics(shortTrades)
   const equity = buildEquityCurve(trades)
   const dd = buildDrawdownSeries(trades)
   const consec = buildConsecutive(trades)
 
   return (
     <div>
-      <h1 className="page-title">{symbol} <span>Longs: trail EMA20 · Shorts: TP 3R below SMA200</span></h1>
+      <h1 className="page-title">{symbol} <span>Trend Rider v1</span></h1>
 
       <div className="kpi-grid">
         <KpiCard label="P&L" value={fmt$(metrics.totalPnl)} cls={metrics.totalPnl >= 0 ? 'green' : 'red'} />
@@ -48,9 +53,19 @@ export default function StockPage({ data }) {
       </div>
 
       <div className="card">
-        <h3>Trades ({trades.length})</h3>
-        <TradeTable trades={trades} />
+        <h3>Quarterly Performance</h3>
+        <QuarterlyTable trades={trades} />
       </div>
+
+      <div className="card">
+        <h3 style={{color:'#00e676'}}>Long Trades ({longTrades.length}) · Win Rate {longMetrics.winRate}% · P&L <span style={{color: longMetrics.totalPnl >= 0 ? '#00e676' : '#ff5252'}}>{fmt$(longMetrics.totalPnl)}</span></h3>
+        <TradeTable trades={longTrades} />
+      </div>
+
+      {shortTrades.length > 0 && <div className="card">
+        <h3 style={{color:'#ff5252'}}>Short Trades ({shortTrades.length}) · Win Rate {shortMetrics.winRate}% · P&L <span style={{color: shortMetrics.totalPnl >= 0 ? '#00e676' : '#ff5252'}}>{fmt$(shortMetrics.totalPnl)}</span></h3>
+        <TradeTable trades={shortTrades} />
+      </div>}
     </div>
   )
 }

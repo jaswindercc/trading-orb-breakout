@@ -116,5 +116,6 @@ export function buildProfitWaveData(trades) {
 }
 
 export function fmt$(v) {
-  return '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  const sign = v < 0 ? '-' : v > 0 ? '+' : ''
+  return sign + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }

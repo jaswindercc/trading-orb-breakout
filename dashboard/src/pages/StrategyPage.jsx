@@ -2,13 +2,18 @@ import { computeMetrics, buildEquityCurve, buildDrawdownSeries, buildConsecutive
 import KpiCard from '../components/KpiCard'
 import EquityChart from '../components/EquityChart'
 import DrawdownChart from '../components/DrawdownChart'
+import QuarterlyTable from '../components/QuarterlyTable'
 import TradeTable from '../components/TradeTable'
 
 const STOCKS = ['SPY','AAPL','ADBE','AMD','BA','CRM','GOOGL','META','MSFT','NVDA','SNOW','TSLA']
 
-export default function Overview({ data }) {
+export default function StrategyPage({ data, strategyName }) {
   const allTrades = data.allTrades.filter(t => t.exitDate)
+  const longTrades = allTrades.filter(t => t.dir === 'LONG')
+  const shortTrades = allTrades.filter(t => t.dir === 'SHORT')
   const metrics = computeMetrics(allTrades)
+  const longMetrics = computeMetrics(longTrades)
+  const shortMetrics = computeMetrics(shortTrades)
   const equity = buildEquityCurve(allTrades)
   const dd = buildDrawdownSeries(allTrades)
   const consec = buildConsecutive(allTrades)
@@ -23,7 +28,7 @@ export default function Overview({ data }) {
 
   return (
     <div>
-      <h1 className="page-title">Portfolio <span>Asymmetric · Longs trail EMA20 · Shorts TP 3R below SMA200</span></h1>
+      <h1 className="page-title">{strategyName} <span>Longs trail EMA20 · Shorts TP 3R (SMA200 + ATR↓)</span></h1>
 
       <div className="kpi-grid">
         <KpiCard label="P&L" value={fmt$(metrics.totalPnl)} cls={metrics.totalPnl >= 0 ? 'green' : 'red'} />
@@ -44,6 +49,11 @@ export default function Overview({ data }) {
       <div className="card">
         <h3>Drawdown</h3>
         <DrawdownChart data={dd.series} />
+      </div>
+
+      <div className="card">
+        <h3>Quarterly Performance</h3>
+        <QuarterlyTable trades={allTrades} />
       </div>
 
       <div className="card">
@@ -69,8 +79,13 @@ export default function Overview({ data }) {
       </div>
 
       <div className="card">
-        <h3>All Trades ({allTrades.length})</h3>
-        <TradeTable trades={allTrades} showStock />
+        <h3 style={{color:'#00e676'}}>Long Trades ({longTrades.length}) · Win Rate {longMetrics.winRate}% · P&L <span style={{color: longMetrics.totalPnl >= 0 ? '#00e676' : '#ff5252'}}>{fmt$(longMetrics.totalPnl)}</span></h3>
+        <TradeTable trades={longTrades} showStock />
+      </div>
+
+      <div className="card">
+        <h3 style={{color:'#ff5252'}}>Short Trades ({shortTrades.length}) · Win Rate {shortMetrics.winRate}% · P&L <span style={{color: shortMetrics.totalPnl >= 0 ? '#00e676' : '#ff5252'}}>{fmt$(shortMetrics.totalPnl)}</span></h3>
+        <TradeTable trades={shortTrades} showStock />
       </div>
     </div>
   )
