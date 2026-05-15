@@ -7,7 +7,7 @@ import PriceChart from '../components/PriceChart'
 import QuarterlyTable from '../components/QuarterlyTable'
 import TradeTable from '../components/TradeTable'
 
-export default function StockPage({ data }) {
+export default function StockPage({ data, strategy }) {
   const { symbol } = useParams()
   const stock = data.stocks[symbol]
   if (!stock) return <div className="loading">Stock "{symbol}" not found</div>
@@ -24,7 +24,7 @@ export default function StockPage({ data }) {
 
   return (
     <div>
-      <h1 className="page-title">{symbol} <span>Trend Rider v1</span></h1>
+      <h1 className="page-title">{symbol} <span>{strategy || 'Trend Rider v1'}</span></h1>
 
       <div className="kpi-grid">
         <KpiCard label="P&L" value={fmt$(metrics.totalPnl)} cls={metrics.totalPnl >= 0 ? 'green' : 'red'} />

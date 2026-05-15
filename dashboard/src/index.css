@@ -69,3 +69,10 @@ tr:hover { background:rgba(255,255,255,.02); }
 .strategy-summary li::before { content:"•"; position:absolute; left:0; color:var(--muted); }
 .strategy-summary li.win::before { color:var(--green); }
 .strategy-summary li.loss::before { color:var(--red); }
+
+/* Compare page */
+.row-bounce-win td { background: rgba(0,200,83,0.05); }
+.row-trend-win td { background: rgba(255,23,68,0.05); }
+table tfoot td { background: var(--card); }
+td.big-diff { outline: 2px solid #ffffff; outline-offset: -2px; border-radius: 3px; }
+.row-baseline td { background: rgba(68,138,255,0.08); }
