@@ -1,60 +1,81 @@
+import { useState } from 'react'
 import { fmt$ } from '../utils'
 
-export default function QuarterlyTable({ trades }) {
-  const quarters = {}
+const VIEWS = ['Quarterly', 'Monthly', 'Yearly']
+
+function bucket(trades, mode) {
+  const map = {}
   trades.forEach(t => {
     if (!t.exitDate) return
-    const year = t.exitDate.slice(0, 4)
-    const month = parseInt(t.exitDate.slice(5, 7))
-    const q = `${year} Q${Math.ceil(month / 3)}`
-    if (!quarters[q]) quarters[q] = { trades: 0, wins: 0, pnl: 0, grossWin: 0, grossLoss: 0 }
-    quarters[q].trades++
-    if (t.pnlDollar > 0) { quarters[q].wins++; quarters[q].grossWin += t.pnlDollar }
-    else quarters[q].grossLoss += Math.abs(t.pnlDollar)
-    quarters[q].pnl += t.pnlDollar
+    const y = t.exitDate.slice(0, 4)
+    const m = parseInt(t.exitDate.slice(5, 7))
+    let key
+    if (mode === 'Yearly') key = y
+    else if (mode === 'Monthly') key = `${y}-${String(m).padStart(2, '0')}`
+    else key = `${y} Q${Math.ceil(m / 3)}`
+    if (!map[key]) map[key] = { pnl: 0, trades: 0, tradesList: [] }
+    map[key].trades++
+    map[key].pnl += t.pnlDollar
+    map[key].tradesList.push(t)
   })
 
-  const rows = Object.entries(quarters).sort().map(([quarter, d]) => ({
-    quarter,
-    trades: d.trades,
-    wins: d.wins,
-    losses: d.trades - d.wins,
-    winRate: d.trades > 0 ? +(d.wins / d.trades * 100).toFixed(1) : 0,
-    pnl: +d.pnl.toFixed(0),
-    pf: d.grossLoss > 0 ? +(d.grossWin / d.grossLoss).toFixed(2) : (d.grossWin > 0 ? '∞' : '-'),
-  }))
+  const rows = Object.entries(map)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([period, d]) => {
+      // Max drawdown within this period
+      let peak = 0, equity = 0, maxDD = 0
+      d.tradesList.sort((a, b) => a.exitDate.localeCompare(b.exitDate)).forEach(t => {
+        equity += t.pnlDollar
+        if (equity > peak) peak = equity
+        const dd = peak - equity
+        if (dd > maxDD) maxDD = dd
+      })
+      return { period, trades: d.trades, pnl: +d.pnl.toFixed(0), maxDD: +maxDD.toFixed(0) }
+    })
 
-  let cumPnl = 0
-  rows.forEach(r => { cumPnl += r.pnl; r.cumPnl = cumPnl })
+  // Cumulative: compute from oldest to newest, then keep reverse order for display
+  const sorted = [...rows].reverse()
+  let cum = 0
+  const cumMap = {}
+  sorted.forEach(r => { cum += r.pnl; cumMap[r.period] = cum })
+  rows.forEach(r => { r.cumPnl = cumMap[r.period] })
+
+  return rows
+}
+
+export default function QuarterlyTable({ trades }) {
+  const [view, setView] = useState('Quarterly')
+  const rows = bucket(trades, view)
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Quarter</th>
-          <th>Trades</th>
-          <th>W</th>
-          <th>L</th>
-          <th>Win%</th>
-          <th>P&L</th>
-          <th>Cumulative</th>
-          <th>PF</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(r => (
-          <tr key={r.quarter}>
-            <td><strong>{r.quarter}</strong></td>
-            <td>{r.trades}</td>
-            <td className="win">{r.wins}</td>
-            <td className="loss">{r.losses}</td>
-            <td>{r.winRate}%</td>
-            <td className={r.pnl >= 0 ? 'win' : 'loss'}>{fmt$(r.pnl)}</td>
-            <td className={r.cumPnl >= 0 ? 'win' : 'loss'}>{fmt$(r.cumPnl)}</td>
-            <td>{r.pf}</td>
-          </tr>
+    <div>
+      <div className="tab-bar" style={{ marginBottom: 12 }}>
+        {VIEWS.map(v => (
+          <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>{v}</button>
         ))}
-      </tbody>
-    </table>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Trades</th>
+            <th>P&L</th>
+            <th>Max DD</th>
+            <th>Cumulative</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.period}>
+              <td><strong>{r.period}</strong></td>
+              <td>{r.trades}</td>
+              <td className={r.pnl >= 0 ? 'win' : 'loss'}>{fmt$(r.pnl)}</td>
+              <td className="loss">{r.maxDD > 0 ? fmt$(r.maxDD) : '-'}</td>
+              <td className={r.cumPnl >= 0 ? 'win' : 'loss'}>{fmt$(r.cumPnl)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
