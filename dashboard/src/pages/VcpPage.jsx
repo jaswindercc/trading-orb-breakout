@@ -4,19 +4,16 @@ import { NavLink } from 'react-router-dom'
 
 const STOCKS = ['SPY','AAPL','ADBE','AMD','BA','CRM','GOOGL','META','MSFT','NVDA','SNOW','TSLA']
 
-export default function StrategyPage({ data, strategyName }) {
-  // Per-stock stats (this is what matters — you trade ONE stock at a time)
+export default function VcpPage({ data, strategyName }) {
   const stockRows = STOCKS.map(s => {
     const t = (data.stocks[s]?.trades || []).filter(t => t.exitDate)
-    const lt = t.filter(t => t.dir === 'LONG')
-    const st = t.filter(t => t.dir === 'SHORT')
     const m = computeMetrics(t)
     const d = buildDrawdownSeries(t)
     return {
       symbol: s,
       trades: t.length,
-      longs: lt.length,
-      shorts: st.length,
+      longs: t.length,
+      shorts: 0,
       winRate: m?.winRate ?? 0,
       totalPnl: m?.totalPnl ?? 0,
       maxDD: d.maxDD,
@@ -37,36 +34,31 @@ export default function StrategyPage({ data, strategyName }) {
 
   return (
     <div>
-      <h1 className="page-title">{strategyName} <span>Longs trail EMA20 · Shorts TP 3R (SMA200 + ATR↓)</span></h1>
+      <h1 className="page-title">{strategyName} <span>Volatility Contraction Breakout · Trail EMA stop at 2.5R · Longs only</span></h1>
 
       <div className="card strategy-summary">
         <h3>The System</h3>
         <ul>
-          <li><strong>Long:</strong> SMA 10 crosses above 50 → trail with EMA stop at 2.5R, no cap</li>
-          <li><strong>Short:</strong> SMA 10 crosses below 50 + below SMA 200 + ATR contracting → fixed TP at 3R</li>
+          <li><strong>Long only.</strong> Minervini-style VCP: tight range near highs, then breakout</li>
+          <li><strong>Setup:</strong> Close &gt; SMA(50), ATR contracting, 10-bar range shrinking</li>
+          <li><strong>Near highs:</strong> Within 8% of 50-bar high (consolidation, not correction)</li>
+          <li><strong>Entry:</strong> Close breaks above 10-bar high with decent volume</li>
+          <li><strong>Exit:</strong> EMA(20) trailing stop at 2.5R</li>
           <li><strong>Risk:</strong> $100 per trade, 1× ATR stop</li>
         </ul>
 
-        <h3>How To Use</h3>
+        <h3>Why This Exists</h3>
         <ul>
-          <li>TradingView → <strong>Daily chart</strong> → paste script → one stock at a time</li>
-          <li>Signal fires → enter at close → <strong>set stop, walk away</strong></li>
+          <li>VCP is Mark Minervini's bread-and-butter pattern — proven over decades</li>
+          <li>Volatility contraction before expansion = <strong>energy building before release</strong></li>
+          <li>Tight stops possible (contraction gives small risk relative to potential)</li>
         </ul>
 
         <h3>Know This</h3>
         <ul>
-          <li className="loss"><strong>65-80% of trades lose.</strong> That's normal.</li>
-          <li className="win"><strong>1-2 big wins (5R-10R+) pay for everything.</strong></li>
-          <li><strong>Never move your stop.</strong> Never close early.</li>
-          <li>Choppy market = small losses. <strong>Trending market = big wins.</strong></li>
-        </ul>
-
-        <h3>Picking Stocks</h3>
-        <ul>
-          <li><strong>Trending = good.</strong> Price clearly above/below 50 SMA, SMAs separated. Staircase on 1Y chart.</li>
-          <li><strong>Choppy = skip.</strong> SMAs flat/tangled, price zigzagging sideways.</li>
-          <li><strong>Best:</strong> NVDA, TSLA, META, AMD, GOOGL, AAPL — big movers that trend hard</li>
-          <li><strong>5+ losses in a row?</strong> Stock is choppy — rotate to something trending</li>
+          <li>Rare pattern — fewer trades but historically high win rate when conditions are met</li>
+          <li>Works best in <strong>new leaders emerging from bases</strong></li>
+          <li>In bear markets, VCPs resolve downward → SMA50 trend filter prevents those</li>
         </ul>
       </div>
 
@@ -80,18 +72,16 @@ export default function StrategyPage({ data, strategyName }) {
       </div>
 
       <div className="card">
-        <h3>Per-Stock Performance <span style={{color:'#8e8e9a', fontWeight:400, fontSize:14, textTransform:'none'}}>(sorted by P&L — you trade one stock at a time)</span></h3>
+        <h3>Per-Stock Performance <span style={{color:'#8e8e9a', fontWeight:400, fontSize:14, textTransform:'none'}}>(sorted by P&L)</span></h3>
         <table>
           <thead>
-            <tr><th>Stock</th><th>Trades</th><th>L</th><th>S</th><th>Win%</th><th>P&L</th><th>Max DD</th><th>PF</th><th>Avg R</th></tr>
+            <tr><th>Stock</th><th>Trades</th><th>Win%</th><th>P&L</th><th>Max DD</th><th>PF</th><th>Avg R</th></tr>
           </thead>
           <tbody>
             {stockRows.map(s => (
               <tr key={s.symbol}>
-                <td><NavLink to={`/trend-rider/stock/${s.symbol}`}><strong>{s.symbol}</strong></NavLink></td>
+                <td><NavLink to={`/vcp/stock/${s.symbol}`}><strong>{s.symbol}</strong></NavLink></td>
                 <td>{s.trades}</td>
-                <td>{s.longs}</td>
-                <td>{s.shorts}</td>
                 <td>{s.winRate}%</td>
                 <td className={s.totalPnl >= 0 ? 'win' : 'loss'}>{fmt$(s.totalPnl)}</td>
                 <td className="loss">{fmt$(s.maxDD)}</td>

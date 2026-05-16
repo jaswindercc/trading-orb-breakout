@@ -4,19 +4,16 @@ import { NavLink } from 'react-router-dom'
 
 const STOCKS = ['SPY','AAPL','ADBE','AMD','BA','CRM','GOOGL','META','MSFT','NVDA','SNOW','TSLA']
 
-export default function StrategyPage({ data, strategyName }) {
-  // Per-stock stats (this is what matters — you trade ONE stock at a time)
+export default function FvgPage({ data, strategyName }) {
   const stockRows = STOCKS.map(s => {
     const t = (data.stocks[s]?.trades || []).filter(t => t.exitDate)
-    const lt = t.filter(t => t.dir === 'LONG')
-    const st = t.filter(t => t.dir === 'SHORT')
     const m = computeMetrics(t)
     const d = buildDrawdownSeries(t)
     return {
       symbol: s,
       trades: t.length,
-      longs: lt.length,
-      shorts: st.length,
+      longs: t.length,
+      shorts: 0,
       winRate: m?.winRate ?? 0,
       totalPnl: m?.totalPnl ?? 0,
       maxDD: d.maxDD,
@@ -37,36 +34,32 @@ export default function StrategyPage({ data, strategyName }) {
 
   return (
     <div>
-      <h1 className="page-title">{strategyName} <span>Longs trail EMA20 · Shorts TP 3R (SMA200 + ATR↓)</span></h1>
+      <h1 className="page-title">{strategyName} <span>Fair Value Gap Pullback · Trail EMA stop at 2.5R · Longs only</span></h1>
 
       <div className="card strategy-summary">
         <h3>The System</h3>
         <ul>
-          <li><strong>Long:</strong> SMA 10 crosses above 50 → trail with EMA stop at 2.5R, no cap</li>
-          <li><strong>Short:</strong> SMA 10 crosses below 50 + below SMA 200 + ATR contracting → fixed TP at 3R</li>
+          <li><strong>Long only.</strong> Detect bullish Fair Value Gaps (imbalance candles)</li>
+          <li><strong>FVG:</strong> bar[i-2].high &lt; bar[i].low with strong impulse candle (body &gt; 0.5×ATR)</li>
+          <li><strong>Entry:</strong> Price pulls back INTO the gap zone and closes above the midpoint</li>
+          <li><strong>Max FVG age:</strong> 30 bars (stale gaps ignored)</li>
+          <li><strong>Trend filter:</strong> price above SMA(50)</li>
+          <li><strong>Exit:</strong> EMA(20) trailing stop at 2.5R</li>
           <li><strong>Risk:</strong> $100 per trade, 1× ATR stop</li>
         </ul>
 
-        <h3>How To Use</h3>
+        <h3>Why This Exists</h3>
         <ul>
-          <li>TradingView → <strong>Daily chart</strong> → paste script → one stock at a time</li>
-          <li>Signal fires → enter at close → <strong>set stop, walk away</strong></li>
+          <li>FVGs represent <strong>institutional imbalance</strong> — price moved too fast, leaving a gap</li>
+          <li>Smart Money Concept: price tends to "fill" these gaps before continuing</li>
+          <li>Provides high-probability entries at discount levels within the trend</li>
         </ul>
 
         <h3>Know This</h3>
         <ul>
-          <li className="loss"><strong>65-80% of trades lose.</strong> That's normal.</li>
-          <li className="win"><strong>1-2 big wins (5R-10R+) pay for everything.</strong></li>
-          <li><strong>Never move your stop.</strong> Never close early.</li>
-          <li>Choppy market = small losses. <strong>Trending market = big wins.</strong></li>
-        </ul>
-
-        <h3>Picking Stocks</h3>
-        <ul>
-          <li><strong>Trending = good.</strong> Price clearly above/below 50 SMA, SMAs separated. Staircase on 1Y chart.</li>
-          <li><strong>Choppy = skip.</strong> SMAs flat/tangled, price zigzagging sideways.</li>
-          <li><strong>Best:</strong> NVDA, TSLA, META, AMD, GOOGL, AAPL — big movers that trend hard</li>
-          <li><strong>5+ losses in a row?</strong> Stock is choppy — rotate to something trending</li>
+          <li>Only bullish FVGs are tracked (buying into filled demand zones)</li>
+          <li>In strong trends, FVGs may not fill (missed entries)</li>
+          <li>In weak trends, FVGs fill but price keeps falling (whipsaw)</li>
         </ul>
       </div>
 
@@ -80,18 +73,16 @@ export default function StrategyPage({ data, strategyName }) {
       </div>
 
       <div className="card">
-        <h3>Per-Stock Performance <span style={{color:'#8e8e9a', fontWeight:400, fontSize:14, textTransform:'none'}}>(sorted by P&L — you trade one stock at a time)</span></h3>
+        <h3>Per-Stock Performance <span style={{color:'#8e8e9a', fontWeight:400, fontSize:14, textTransform:'none'}}>(sorted by P&L)</span></h3>
         <table>
           <thead>
-            <tr><th>Stock</th><th>Trades</th><th>L</th><th>S</th><th>Win%</th><th>P&L</th><th>Max DD</th><th>PF</th><th>Avg R</th></tr>
+            <tr><th>Stock</th><th>Trades</th><th>Win%</th><th>P&L</th><th>Max DD</th><th>PF</th><th>Avg R</th></tr>
           </thead>
           <tbody>
             {stockRows.map(s => (
               <tr key={s.symbol}>
-                <td><NavLink to={`/trend-rider/stock/${s.symbol}`}><strong>{s.symbol}</strong></NavLink></td>
+                <td><NavLink to={`/fvg/stock/${s.symbol}`}><strong>{s.symbol}</strong></NavLink></td>
                 <td>{s.trades}</td>
-                <td>{s.longs}</td>
-                <td>{s.shorts}</td>
                 <td>{s.winRate}%</td>
                 <td className={s.totalPnl >= 0 ? 'win' : 'loss'}>{fmt$(s.totalPnl)}</td>
                 <td className="loss">{fmt$(s.maxDD)}</td>

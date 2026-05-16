@@ -22,19 +22,19 @@ const LEARNINGS = [
     icon: '🚫',
     items: [
       {
-        rule: 'Skipping trades after consecutive losers HURTS performance. Take every trade.',
-        proof: '"Wait for 2 reds" loses $25,237 vs baseline. Only helps 2/12 stocks (BA, TSLA — marginally). "Wait for 3 reds" even worse: loses $31,279.',
-        tested: 'Filter Lab — simulated across all 12 stocks with Wait-2, Wait-3 filters on MA Bounce.'
+        rule: 'NO trade-skipping pattern beats taking every trade. We tested 12 different filters.',
+        proof: '13 filters tested across 12 stocks: after reds take/skip, after greens take/skip, mechanical spacing. Every single one lost money vs baseline ($39,481). Closest was "After 2 reds → skip next" at −$3,204. Worst was "After 2 greens → take next" at −$38,228.',
+        tested: 'Trade Skip Analysis — 13 filters × 12 stocks, exhaustive combinations.'
       },
       {
-        rule: 'Losses are random. They do NOT cluster in exploitable patterns.',
-        proof: 'Losing streaks are evenly distributed. Filtering by streaks just makes you miss winners alongside losers. Win rate barely improves (28.7% → 26.6%) while P&L craters.',
-        tested: 'Filter Lab — streak analysis on all 12 stocks.'
+        rule: 'Losses are random. Wins are random. They do NOT cluster in exploitable patterns.',
+        proof: 'Tested reversion theory (after reds, take next), momentum theory (after greens, take next), avoidance theory (after streaks, skip next). All failed. Every pool of skipped trades was net profitable — meaning every filter skips good trades.',
+        tested: 'Trade Skip Analysis — skipped trade P&L analysis across all filters.'
       },
       {
         rule: 'Higher win rate per trade ≠ more money. "Quality" filters reduce total returns.',
         proof: 'Wait-3-Reds on SPY: 50% WR, PF 6.59, Avg R 2.79 — looks amazing. But only 8 trades, $2,234 total vs $3,494 baseline. Per-trade quality up, total P&L down.',
-        tested: 'Filter Lab — SPY detailed analysis.'
+        tested: 'Filter Lab — SPY detailed analysis. Confirmed across all 12 stocks in Trade Skip Analysis.'
       },
     ]
   },

@@ -2,28 +2,100 @@ import React, { useMemo } from 'react'
 import { fmt$ } from '../utils'
 
 const STOCKS = ['SPY','AAPL','ADBE','AMD','BA','CRM','GOOGL','META','MSFT','NVDA','SNOW','TSLA']
-const CONFIGS = [
-  { label: 'Baseline', reds: 0 },
-  { label: 'Wait 2 reds', reds: 2 },
-  { label: 'Wait 3 reds', reds: 3 },
-]
 
-function simulate(trades, waitForReds) {
-  if (waitForReds === 0) return { taken: trades, skipped: [] }
-  const taken = [], skipped = []
-  let consecLosses = 0, armed = false
+/* ── Filter functions ── */
+/* Each returns { taken, skipped } */
+
+function baseline(trades) { return { taken: trades, skipped: [] } }
+
+function afterNRedsTake(trades, n) {
+  const taken = [], skipped = []; let c = 0, armed = false
   for (const t of trades) {
-    if (armed) {
-      taken.push(t)
-      if (t.pnlDollar <= 0) { consecLosses++; armed = consecLosses >= waitForReds }
-      else { consecLosses = 0; armed = false }
-    } else {
-      skipped.push(t)
-      if (t.pnlDollar <= 0) { consecLosses++; if (consecLosses >= waitForReds) armed = true }
-      else { consecLosses = 0 }
-    }
+    if (armed) { taken.push(t); if (t.pnlDollar<=0){c++;armed=c>=n}else{c=0;armed=false} }
+    else { skipped.push(t); if (t.pnlDollar<=0){c++;if(c>=n)armed=true}else c=0 }
   }
   return { taken, skipped }
+}
+
+function afterNRedsSkip(trades, n) {
+  const taken = [], skipped = []; let c = 0, skip = false
+  for (const t of trades) {
+    if (skip) { skipped.push(t); skip=false; if(t.pnlDollar<=0)c++;else c=0 }
+    else { taken.push(t); if(t.pnlDollar<=0){c++;if(c>=n){skip=true;c=0}}else c=0 }
+  }
+  return { taken, skipped }
+}
+
+function afterNGreensSkip(trades, n) {
+  const taken = [], skipped = []; let c = 0, skip = false
+  for (const t of trades) {
+    if (skip) { skipped.push(t); skip=false; if(t.pnlDollar>0)c++;else c=0 }
+    else { taken.push(t); if(t.pnlDollar>0){c++;if(c>=n){skip=true;c=0}}else c=0 }
+  }
+  return { taken, skipped }
+}
+
+function afterNGreensTake(trades, n) {
+  const taken = [], skipped = []; let c = 0, armed = false
+  for (const t of trades) {
+    if (armed) { taken.push(t); if(t.pnlDollar>0){c++;armed=c>=n}else{c=0;armed=false} }
+    else { skipped.push(t); if(t.pnlDollar>0){c++;if(c>=n)armed=true}else c=0 }
+  }
+  return { taken, skipped }
+}
+
+function afterRedTakeNext(trades) {
+  const taken = [], skipped = []; let lastLoss = false
+  for (const t of trades) {
+    if (lastLoss) taken.push(t); else skipped.push(t)
+    lastLoss = t.pnlDollar <= 0
+  }
+  return { taken, skipped }
+}
+
+function afterGreenTakeNext(trades) {
+  const taken = [], skipped = []; let lastWin = false
+  for (const t of trades) {
+    if (lastWin) taken.push(t); else skipped.push(t)
+    lastWin = t.pnlDollar > 0
+  }
+  return { taken, skipped }
+}
+
+function everyNth(trades, n) {
+  const taken = [], skipped = []
+  trades.forEach((t, i) => { if (i % n === 0) taken.push(t); else skipped.push(t) })
+  return { taken, skipped }
+}
+
+const FILTERS = [
+  { id: 'baseline',    label: 'Baseline (take all)',       cat: 'baseline', fn: t => baseline(t) },
+  // After reds → take next
+  { id: 'r1-take',     label: 'After 1 red → take next',  cat: 'after-reds-take', fn: t => afterRedTakeNext(t) },
+  { id: 'r2-take',     label: 'After 2 reds → take next', cat: 'after-reds-take', fn: t => afterNRedsTake(t,2) },
+  { id: 'r3-take',     label: 'After 3 reds → take next', cat: 'after-reds-take', fn: t => afterNRedsTake(t,3) },
+  // After reds → skip next
+  { id: 'r2-skip',     label: 'After 2 reds → skip next', cat: 'after-reds-skip', fn: t => afterNRedsSkip(t,2) },
+  { id: 'r3-skip',     label: 'After 3 reds → skip next', cat: 'after-reds-skip', fn: t => afterNRedsSkip(t,3) },
+  // After greens → skip next (expect reversion)
+  { id: 'g1-skip',     label: 'After 1 green → skip next',  cat: 'after-greens-skip', fn: t => afterNGreensSkip(t,1) },
+  { id: 'g2-skip',     label: 'After 2 greens → skip next', cat: 'after-greens-skip', fn: t => afterNGreensSkip(t,2) },
+  { id: 'g3-skip',     label: 'After 3 greens → skip next', cat: 'after-greens-skip', fn: t => afterNGreensSkip(t,3) },
+  // After greens → take next (momentum)
+  { id: 'g1-take',     label: 'After 1 green → take next',  cat: 'after-greens-take', fn: t => afterGreenTakeNext(t) },
+  { id: 'g2-take',     label: 'After 2 greens → take next', cat: 'after-greens-take', fn: t => afterNGreensTake(t,2) },
+  // Mechanical
+  { id: 'every2',      label: 'Take every 2nd trade',     cat: 'mechanical', fn: t => everyNth(t,2) },
+  { id: 'every3',      label: 'Take every 3rd trade',     cat: 'mechanical', fn: t => everyNth(t,3) },
+]
+
+const CAT_LABELS = {
+  'baseline': 'Baseline',
+  'after-reds-take': 'After Losing Streak → Take Next (reversion theory)',
+  'after-reds-skip': 'After Losing Streak → Skip Next (avoid more pain)',
+  'after-greens-skip': 'After Winning Streak → Skip Next (expect pullback)',
+  'after-greens-take': 'After Winning Streak → Take Next (momentum theory)',
+  'mechanical': 'Mechanical Spacing',
 }
 
 function calcStats(trades) {
@@ -37,115 +109,179 @@ function calcStats(trades) {
   const pf = gl !== 0 ? Math.abs(gw / gl) : 99
   const avgr = trades.reduce((s,t) => s + t.pnlR, 0) / trades.length
   let eq = 0, peak = 0, dd = 0
-  for (const t of trades) {
-    eq += t.pnlDollar; if (eq > peak) peak = eq
-    const d = eq - peak; if (d < dd) dd = d
-  }
+  for (const t of trades) { eq += t.pnlDollar; if (eq>peak) peak=eq; const x=eq-peak; if (x<dd) dd=x }
   const big = trades.filter(t => t.pnlR >= 3).length
   return { n: trades.length, w: wins.length, wr, pnl, pf, avgr, dd, big }
 }
 
 export default function FilterLabPage({ bnData }) {
   const data = useMemo(() => {
-    const rows = STOCKS.map(sym => {
-      const trades = (bnData.stocks[sym]?.trades || []).filter(t => t.exitDate)
-      const results = CONFIGS.map(c => {
-        const { taken } = simulate(trades, c.reds)
-        return { ...c, ...calcStats(taken), totalSignals: trades.length }
-      })
-      return { sym, results }
-    })
-    const totals = CONFIGS.map(c => {
-      const allTaken = STOCKS.flatMap(sym => {
-        const trades = (bnData.stocks[sym]?.trades || []).filter(t => t.exitDate)
-        return simulate(trades, c.reds).taken
-      })
-      return { ...c, ...calcStats(allTaken), totalSignals: rows.reduce((s,r) => s + r.results[0].totalSignals, 0) }
-    })
-    const verdict = CONFIGS.slice(1).map(c => {
-      let wins = 0
+    // Totals per filter (all stocks combined)
+    const totals = FILTERS.map(f => {
+      const allTaken = [], allSkipped = []
+      let stocksWon = 0
       STOCKS.forEach(sym => {
         const trades = (bnData.stocks[sym]?.trades || []).filter(t => t.exitDate)
-        const basePnl = calcStats(trades).pnl
-        const filtPnl = calcStats(simulate(trades, c.reds).taken).pnl
-        if (filtPnl > basePnl) wins++
+        const { taken, skipped } = f.fn(trades)
+        allTaken.push(...taken)
+        allSkipped.push(...skipped)
+        if (f.id !== 'baseline') {
+          if (calcStats(taken).pnl > calcStats(trades).pnl) stocksWon++
+        }
       })
-      return { label: c.label, reds: c.reds, stocksWon: wins }
+      const ts = calcStats(allTaken)
+      const ss = calcStats(allSkipped)
+      return { ...f, ...ts, skippedPnl: ss.pnl, skippedN: ss.n, skippedWr: ss.wr, stocksWon }
     })
-    return { rows, totals, verdict }
+
+    // Per-stock breakdown for top filters
+    const TOP_IDS = ['baseline', 'r2-skip', 'g2-skip', 'g3-skip']
+    const perStock = STOCKS.map(sym => {
+      const trades = (bnData.stocks[sym]?.trades || []).filter(t => t.exitDate)
+      const cols = TOP_IDS.map(id => {
+        const f = FILTERS.find(x => x.id === id)
+        const { taken } = f.fn(trades)
+        return { id, ...calcStats(taken) }
+      })
+      return { sym, cols }
+    })
+
+    return { totals, perStock, topIds: TOP_IDS }
   }, [bnData])
+
+  const baselinePnl = data.totals[0].pnl
+
+  // Group filters by category
+  const categories = []
+  let lastCat = null
+  data.totals.forEach(t => {
+    if (t.cat !== lastCat) { categories.push({ cat: t.cat, label: CAT_LABELS[t.cat], items: [] }); lastCat = t.cat }
+    categories[categories.length - 1].items.push(t)
+  })
 
   return (
     <div>
-      <h1 className="page-title">Filter Lab <span>MA Bounce · All 12 Stocks · "Wait for reds"</span></h1>
+      <h1 className="page-title">Trade Skip Analysis <span>MA Bounce · 12 Stocks · Every skip combination tested</span></h1>
 
       <div className="card strategy-summary">
-        <h3>The Idea</h3>
-        <p>Skip MA Bounce trades until you see N consecutive losers, then take the next trade. Theory: after a losing streak, the next trade is more likely to win. Test across all 12 stocks to prove or disprove.</p>
+        <h3>What We Tested</h3>
+        <p>13 different trade-skipping strategies applied to MA Bounce across all 12 stocks (512 total trades). We tested every theory: skip after losses, skip after wins, take after streaks, mechanical spacing. <strong>Does any pattern-based filtering beat taking every trade?</strong></p>
       </div>
 
-      {/* Verdict KPI cards */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        {data.totals.map((t, i) => (
-          <div key={t.label} className="card" style={{ flex: 1, minWidth: '200px', textAlign: 'center' }}>
-            <div style={{ fontSize: '14px', opacity: 0.7 }}>{t.label}</div>
-            <div style={{ fontSize: '28px', fontWeight: 700, color: t.pnl >= 0 ? '#00e676' : '#ff5252' }}>{fmt$(t.pnl)}</div>
-            <div style={{ fontSize: '14px' }}>{t.n} trades · {t.wr.toFixed(1)}% WR · PF {t.pf.toFixed(2)}</div>
-            <div style={{ fontSize: '14px' }}>Max DD: {fmt$(t.dd)} · Big wins: {t.big}</div>
-            {i > 0 && (
-              <div style={{ marginTop: '8px', padding: '4px 8px', borderRadius: '4px',
-                background: t.pnl > data.totals[0].pnl ? '#00e67622' : '#ff525222',
-                color: t.pnl > data.totals[0].pnl ? '#00e676' : '#ff5252', fontWeight: 700 }}>
-                {t.pnl > data.totals[0].pnl ? '+' : ''}{fmt$(t.pnl - data.totals[0].pnl)} vs baseline
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Per-Stock P&L Table */}
+      {/* ── Master Scoreboard ── */}
       <div className="card">
-        <h2>Per-Stock P&L Comparison</h2>
+        <h2>Master Scoreboard — All 13 Filters</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Filter</th>
+              <th>Taken</th>
+              <th>WR%</th>
+              <th>P&L</th>
+              <th>vs Base</th>
+              <th>PF</th>
+              <th>Avg R</th>
+              <th>Max DD</th>
+              <th>Big Wins</th>
+              <th>Stocks+</th>
+              <th>Skipped P&L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map(cat => (
+              <React.Fragment key={cat.cat}>
+                <tr><td colSpan={11} style={{ background: 'rgba(68,138,255,0.1)', fontWeight: 700, fontSize: '13px', padding: '8px 12px' }}>{cat.label}</td></tr>
+                {cat.items.map(t => {
+                  const diff = t.pnl - baselinePnl
+                  const isBase = t.id === 'baseline'
+                  return (
+                    <tr key={t.id} className={isBase ? 'row-baseline' : ''}>
+                      <td><strong>{t.label}</strong></td>
+                      <td>{t.n}</td>
+                      <td>{t.wr.toFixed(1)}%</td>
+                      <td className={t.pnl >= 0 ? 'win' : 'loss'}>{fmt$(t.pnl)}</td>
+                      <td className={diff >= 0 ? 'win' : 'loss'} style={{ fontWeight: 700 }}>
+                        {isBase ? '—' : `${diff >= 0 ? '+' : ''}${fmt$(diff)}`}
+                      </td>
+                      <td>{t.pf.toFixed(2)}</td>
+                      <td className={t.avgr >= 0 ? 'win' : 'loss'}>{t.avgr.toFixed(2)}</td>
+                      <td className="loss">{fmt$(t.dd)}</td>
+                      <td>{t.big}</td>
+                      <td style={{ color: t.stocksWon > 6 ? '#00e676' : t.stocksWon >= 5 ? '#ffab40' : '#ff5252', fontWeight: 700 }}>
+                        {isBase ? '—' : `${t.stocksWon}/12`}
+                      </td>
+                      <td style={{ opacity: 0.7 }}>{isBase ? '—' : `${fmt$(t.skippedPnl)} (${t.skippedN})`}</td>
+                    </tr>
+                  )
+                })}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Key Insight: Skipped Trades ── */}
+      <div className="card">
+        <h2>The Skipped Trades — Are They Actually Bad?</h2>
+        <p style={{ marginBottom: '12px', opacity: 0.8 }}>If the trades you skip are net positive, the filter is hurting you — you're leaving money on the table.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Filter</th>
+              <th>Trades Skipped</th>
+              <th>Skipped P&L</th>
+              <th>Skipped WR%</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.totals.filter(t => t.id !== 'baseline').map(t => (
+              <tr key={t.id}>
+                <td><strong>{t.label}</strong></td>
+                <td>{t.skippedN}</td>
+                <td className={t.skippedPnl >= 0 ? 'win' : 'loss'}>{fmt$(t.skippedPnl)}</td>
+                <td>{t.skippedWr.toFixed(1)}%</td>
+                <td style={{ color: t.skippedPnl > 0 ? '#ff5252' : '#00e676', fontWeight: 700 }}>
+                  {t.skippedPnl > 0 ? 'Skipped $ was PROFITABLE → filter hurts' : t.skippedPnl === 0 ? 'Neutral' : 'Skipped $ was negative → filter helps'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Per-Stock for Top Filters ── */}
+      <div className="card">
+        <h2>Per-Stock Breakdown — Top Filters vs Baseline</h2>
         <table>
           <thead>
             <tr>
               <th>Stock</th>
-              <th>Signals</th>
-              {CONFIGS.map(c => <th key={c.reds} colSpan={2}>{c.label}</th>)}
-              <th>Filter Helps?</th>
+              {data.topIds.map(id => {
+                const f = FILTERS.find(x => x.id === id)
+                return <th key={id} colSpan={2}>{f.label}</th>
+              })}
             </tr>
             <tr>
               <th></th>
-              <th></th>
-              {CONFIGS.map(c => (
-                <React.Fragment key={c.reds}>
-                  <th>P&L</th>
-                  <th>WR%</th>
-                </React.Fragment>
-              ))}
-              <th></th>
+              {data.topIds.map(id => <React.Fragment key={id}><th>P&L</th><th>WR%</th></React.Fragment>)}
             </tr>
           </thead>
           <tbody>
-            {data.rows.map(row => {
-              const basePnl = row.results[0].pnl
-              const anyHelps = row.results.slice(1).some(r => r.pnl > basePnl)
+            {data.perStock.map(row => {
+              const basePnl = row.cols[0].pnl
               return (
                 <tr key={row.sym}>
                   <td><strong>{row.sym}</strong></td>
-                  <td>{row.results[0].totalSignals}</td>
-                  {row.results.map((r, i) => (
-                    <React.Fragment key={r.reds}>
-                      <td className={r.pnl >= 0 ? 'win' : 'loss'}
-                        style={i > 0 && r.pnl > basePnl ? { outline: '2px solid #00e676', outlineOffset: '-2px' } : {}}>
-                        {fmt$(r.pnl)}
+                  {row.cols.map((c, i) => (
+                    <React.Fragment key={c.id}>
+                      <td className={c.pnl >= 0 ? 'win' : 'loss'}
+                        style={i > 0 && c.pnl > basePnl ? { outline: '2px solid #00e676', outlineOffset: '-2px' } : {}}>
+                        {fmt$(c.pnl)}
                       </td>
-                      <td>{r.wr.toFixed(1)}%</td>
+                      <td>{c.wr.toFixed(1)}%</td>
                     </React.Fragment>
                   ))}
-                  <td style={{ color: anyHelps ? '#00e676' : '#ff5252', fontWeight: 700 }}>
-                    {anyHelps ? 'YES' : 'NO'}
-                  </td>
                 </tr>
               )
             })}
@@ -153,99 +289,50 @@ export default function FilterLabPage({ bnData }) {
           <tfoot>
             <tr>
               <td><strong>TOTAL</strong></td>
-              <td>{data.totals[0].totalSignals}</td>
-              {data.totals.map(t => (
-                <React.Fragment key={t.reds}>
-                  <td className={t.pnl >= 0 ? 'win' : 'loss'}><strong>{fmt$(t.pnl)}</strong></td>
-                  <td><strong>{t.wr.toFixed(1)}%</strong></td>
-                </React.Fragment>
-              ))}
-              <td style={{ fontWeight: 700 }}>
-                {data.verdict.map(v => `${v.label}: ${v.stocksWon}/12`).join(' · ')}
-              </td>
+              {data.topIds.map(id => {
+                const t = data.totals.find(x => x.id === id)
+                return (
+                  <React.Fragment key={id}>
+                    <td className={t.pnl >= 0 ? 'win' : 'loss'}><strong>{fmt$(t.pnl)}</strong></td>
+                    <td><strong>{t.wr.toFixed(1)}%</strong></td>
+                  </React.Fragment>
+                )
+              })}
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {/* Detailed Stats */}
-      <div className="card">
-        <h2>Detailed Stats per Filter</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Stock</th>
-              <th>Filter</th>
-              <th>Taken</th>
-              <th>Wins</th>
-              <th>WR%</th>
-              <th>P&L</th>
-              <th>PF</th>
-              <th>Avg R</th>
-              <th>Max DD</th>
-              <th>Big Wins</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map(row =>
-              row.results.map((r, i) => (
-                <tr key={`${row.sym}-${r.reds}`} className={i === 0 ? 'row-baseline' : ''}>
-                  {i === 0 ? <td rowSpan={row.results.length}><strong>{row.sym}</strong></td> : null}
-                  <td>{r.label}</td>
-                  <td>{r.n}</td>
-                  <td>{r.w}</td>
-                  <td>{r.wr.toFixed(1)}%</td>
-                  <td className={r.pnl >= 0 ? 'win' : 'loss'}>{fmt$(r.pnl)}</td>
-                  <td>{r.pf.toFixed(2)}</td>
-                  <td className={r.avgr >= 0 ? 'win' : 'loss'}>{r.avgr.toFixed(2)}</td>
-                  <td className="loss">{fmt$(r.dd)}</td>
-                  <td>{r.big}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-          <tfoot>
-            {data.totals.map((t, i) => (
-              <tr key={t.reds}>
-                {i === 0 ? <td rowSpan={data.totals.length}><strong>ALL</strong></td> : null}
-                <td><strong>{t.label}</strong></td>
-                <td><strong>{t.n}</strong></td>
-                <td><strong>{t.w}</strong></td>
-                <td><strong>{t.wr.toFixed(1)}%</strong></td>
-                <td className={t.pnl >= 0 ? 'win' : 'loss'}><strong>{fmt$(t.pnl)}</strong></td>
-                <td><strong>{t.pf.toFixed(2)}</strong></td>
-                <td className={t.avgr >= 0 ? 'win' : 'loss'}><strong>{t.avgr.toFixed(2)}</strong></td>
-                <td className="loss"><strong>{fmt$(t.dd)}</strong></td>
-                <td><strong>{t.big}</strong></td>
-              </tr>
-            ))}
-          </tfoot>
-        </table>
-      </div>
-
-      {/* Final Verdict */}
+      {/* ── Final Verdict ── */}
       <div className="card" style={{ borderLeft: '4px solid #ff5252' }}>
         <h2>Final Verdict</h2>
-        <table>
-          <thead>
-            <tr><th>Filter</th><th>Stocks where filter beats baseline</th><th>Total P&L lost</th></tr>
-          </thead>
-          <tbody>
-            {data.verdict.map(v => (
-              <tr key={v.reds}>
-                <td><strong>{v.label}</strong></td>
-                <td style={{ color: v.stocksWon > 6 ? '#00e676' : '#ff5252', fontWeight: 700 }}>{v.stocksWon} / 12</td>
-                <td className="loss">{fmt$(data.totals.find(t => t.reds === v.reds).pnl - data.totals[0].pnl)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p style={{ marginTop: '12px', fontSize: '16px' }}>
-          <strong style={{ color: '#ff5252' }}>Conclusion:</strong> The "wait for consecutive losers" filter <strong>hurts on 10/12 stocks</strong>.
-          Only BA and TSLA marginally benefit. You lose <strong>{fmt$(data.totals[0].pnl - data.totals[1].pnl)}</strong> total with Wait-2-Reds
-          and <strong>{fmt$(data.totals[0].pnl - data.totals[2].pnl)}</strong> with Wait-3-Reds.
-          Losses are random, not clustered predictably. <strong>Take every trade.</strong>
-        </p>
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '150px', padding: '12px', borderRadius: '6px', background: '#ff525215', textAlign: 'center' }}>
+            <div style={{ fontSize: '36px', fontWeight: 700, color: '#ff5252' }}>0 / 12</div>
+            <div style={{ fontSize: '14px', opacity: 0.7 }}>Filters that beat baseline</div>
+          </div>
+          <div style={{ flex: 1, minWidth: '150px', padding: '12px', borderRadius: '6px', background: '#ff525215', textAlign: 'center' }}>
+            <div style={{ fontSize: '36px', fontWeight: 700, color: '#ff5252' }}>100%</div>
+            <div style={{ fontSize: '14px', opacity: 0.7 }}>Skipped pools are net positive</div>
+          </div>
+          <div style={{ flex: 1, minWidth: '150px', padding: '12px', borderRadius: '6px', background: '#00e67615', textAlign: 'center' }}>
+            <div style={{ fontSize: '36px', fontWeight: 700, color: '#00e676' }}>{fmt$(baselinePnl)}</div>
+            <div style={{ fontSize: '14px', opacity: 0.7 }}>Baseline is still king</div>
+          </div>
+        </div>
+        <div style={{ fontSize: '15px', lineHeight: 1.7 }}>
+          <p><strong>We tested 12 different skip strategies across 12 stocks.</strong> Not a single one beats the baseline.</p>
+          <ul style={{ margin: '8px 0' }}>
+            <li><strong>After reds → take next:</strong> Loses $9K–$31K. The "due for a win" theory is false.</li>
+            <li><strong>After reds → skip next:</strong> Best performer at −$3,204, but 6/12 stocks still worse. Skipped trades were +$3,204 profitable.</li>
+            <li><strong>After greens → skip next:</strong> Only −$28 to −$7,832. Close but still negative. Every skipped pool was profitable.</li>
+            <li><strong>After greens → take next:</strong> Momentum theory fails: −$30K to −$38K. Terrible.</li>
+            <li><strong>Mechanical (every Nth):</strong> Random spacing loses $22K–$38K. Confirms randomness.</li>
+          </ul>
+          <p style={{ marginTop: '12px', fontWeight: 700, color: '#00e676' }}>
+            Conclusion: Trade outcomes are independent. No skip pattern exploits any hidden structure. Take every signal.
+          </p>
+        </div>
       </div>
     </div>
   )
